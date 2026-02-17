@@ -179,6 +179,51 @@ function rebuildNode(saved) {
   return node;
 }
 
+// Undo history
+const undoStack = [];
+const MAX_UNDO = 50;
+
+function snapshotState() {
+  return JSON.stringify({
+    tree: serializeTree(DATA),
+    customPos: Object.fromEntries(customPos),
+    customWidth: Object.fromEntries(customWidth),
+    collapsed: [...collapsed],
+    anchors: Object.fromEntries(anchorOverrides),
+  });
+}
+
+function pushUndo() {
+  const snap = snapshotState();
+  if (undoStack.length && undoStack[undoStack.length - 1] === snap) return;
+  undoStack.push(snap);
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+}
+
+function undo() {
+  if (!undoStack.length) return;
+  const snap = JSON.parse(undoStack.pop());
+  // Restore tree
+  nodeIdCounter = 0; nodeMap.clear();
+  const tree = snap.tree;
+  DATA.id = tree.id; DATA.text = tree.text; DATA.color = tree.color;
+  DATA.children = (tree.children || []).map(rebuildNode);
+  nodeMap.set(DATA.id, DATA);
+  if (DATA.id >= nodeIdCounter) nodeIdCounter = DATA.id + 1;
+  // Restore maps
+  customPos.clear();
+  for (const [k, v] of Object.entries(snap.customPos || {})) customPos.set(Number(k), v);
+  customWidth.clear();
+  for (const [k, v] of Object.entries(snap.customWidth || {})) customWidth.set(Number(k), v);
+  collapsed.clear();
+  for (const id of (snap.collapsed || [])) collapsed.add(id);
+  anchorOverrides.clear();
+  for (const [k, v] of Object.entries(snap.anchors || {})) anchorOverrides.set(k, v);
+  selectedNodes.clear();
+  render();
+  updateTransform();
+}
+
 // Auto-save to localStorage
 function saveState() {
   try {
@@ -331,6 +376,7 @@ function isDescendantOf(ancestor, node) {
 }
 
 function reparentNode(node, newParent) {
+  pushUndo();
   const oldParent = findParent(node, DATA);
   if (!oldParent || oldParent.id === newParent.id) return;
   // Remove from old parent
@@ -349,6 +395,7 @@ function reparentNode(node, newParent) {
 }
 
 function addChildNode(parentNode) {
+  pushUndo();
   const newNode = {
     text: '新規',
     color: parentNode.color,
@@ -381,6 +428,7 @@ function defaultNodeWidth(node, depth) {
 
 // Auto-format: clean left-to-right tree layout
 function autoFormat() {
+  pushUndo();
   customPos.clear();
   customWidth.clear();
   anchorOverrides.clear();
@@ -443,6 +491,7 @@ function autoFormatFrom(root, startDepth, startX, startY) {
 // Auto-format subtree only (keep root position, format children)
 function autoFormatSubtree(parentNode) {
   if (!parentNode.children || parentNode.children.length === 0) return;
+  pushUndo();
   const depth = getNodeDepth(parentNode);
   // Clear custom data for all descendants
   function clearDescendants(node) {
@@ -716,6 +765,7 @@ function render() {
       rh.addEventListener('mousedown', (e) => {
         e.stopPropagation();
         e.preventDefault();
+        pushUndo();
         const startX = e.clientX;
         const origW = w;
         const origNodeX = node._x;
@@ -784,6 +834,8 @@ function render() {
       const startMY = e.clientY;
       let dragged = false;
 
+      // Save undo before drag
+      pushUndo();
       // Snapshot original positions of this node + all selected
       const origPositions = new Map();
       const moveSet = new Set(selectedNodes);
@@ -897,6 +949,7 @@ function startEdit(node, g, w, h, fontSize) {
   function commit() {
     const val = input.value.trim();
     if (val && val !== node.text) {
+      pushUndo();
       node.text = val;
       render();
     }
@@ -959,6 +1012,7 @@ ctxMenu.addEventListener('click', (e) => {
     }
   } else if (action === 'delete') {
     if (ctxNode.id === DATA.id) return;
+    pushUndo();
     const parent = findParent(ctxNode, DATA);
     if (parent) {
       parent.children = parent.children.filter(c => c.id !== ctxNode.id);
@@ -968,6 +1022,7 @@ ctxMenu.addEventListener('click', (e) => {
       render(); updateTransform();
     }
   } else if (action === 'delete-selected') {
+    pushUndo();
     for (const nid of [...selectedNodes]) {
       if (nid === DATA.id) continue;
       const n = nodeMap.get(nid);
@@ -1129,6 +1184,14 @@ document.getElementById('resetView').addEventListener('click', () => {
   resetAll();
   render();
   updateTransform();
+});
+
+// Undo: Cmd+Z / Ctrl+Z
+window.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+    e.preventDefault();
+    undo();
+  }
 });
 
 // Resize
