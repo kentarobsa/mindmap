@@ -204,9 +204,17 @@ function undo() {
 // Auto-save to localStorage
 function saveState() {
   try {
+    // Save ALL nodes' displayed positions, not just customPos entries
+    // This ensures positions are stable across reloads
+    const allPos = {};
+    nodeMap.forEach((node, id) => {
+      if (node._x !== undefined && node._y !== undefined) {
+        allPos[id] = { x: node._x, y: node._y };
+      }
+    });
     const state = {
       tree: serializeTree(DATA),
-      customPos: Object.fromEntries(customPos),
+      customPos: allPos,
       customWidth: Object.fromEntries(customWidth),
       collapsed: [...collapsed],
       anchors: Object.fromEntries(anchorOverrides),
