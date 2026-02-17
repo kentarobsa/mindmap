@@ -295,7 +295,8 @@ if (new URLSearchParams(window.location.search).has('reset')) {
   window.history.replaceState({}, '', window.location.pathname);
 }
 // Init: load saved state or assign fresh IDs
-if (!loadState()) { assignIds(DATA); }
+const isFirstLoad = !loadState();
+if (isFirstLoad) { assignIds(DATA); }
 
 // Layout
 function computeLayout(node, depth, angleStart, angleEnd, parentX, parentY, pNode) {
@@ -1328,6 +1329,7 @@ window.addEventListener('resize', updateTransform);
 // Init
 render();
 updateTransform();
+if (isFirstLoad) { autoFormat(); }
 </script>
 </body>
 </html>
