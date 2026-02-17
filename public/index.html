@@ -45,11 +45,20 @@ svg { width: 100%; height: 100%; }
 .color-dot.active { border-color: #fff; }
 .color-custom { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; border: 2px dashed rgba(255,255,255,0.4); background: conic-gradient(red,yellow,lime,aqua,blue,magenta,red); flex-shrink: 0; overflow: hidden; position: relative; }
 .color-custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.controls button.active { background: rgba(85,187,255,0.5); box-shadow: 0 0 8px rgba(85,187,255,0.4); }
+#container.arrow-mode { cursor: crosshair; }
+#container.arrow-mode.grabbing { cursor: crosshair; }
+.free-arrow-path { fill: none; stroke-linecap: round; cursor: pointer; }
+.free-arrow-hit { fill: none; stroke: transparent; stroke-width: 14; cursor: pointer; }
+.free-arrow-handle { cursor: grab; }
+.free-arrow-handle:hover { filter: brightness(1.3); }
+.arrow-ctx-menu { position: fixed; display: none; background: rgba(20,20,45,0.96); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 6px 0; z-index: 200; min-width: 170px; backdrop-filter: blur(12px); box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
+.arrow-ctx-menu.show { display: block; }
 </style>
 </head>
 <body>
 
-<div class="hint">ドラッグで移動 ・ クリックで編集 ・ Shift+クリックで複数選択 ・ Shift+ドラッグで範囲選択 ・ 右クリックでメニュー</div>
+<div class="hint">ドラッグで移動 ・ クリックで編集 ・ Shift+クリックで複数選択 ・ Shift+ドラッグで範囲選択 ・ 右クリックでメニュー ・ ↗で矢印描画</div>
 <div id="ctx-menu" class="ctx-menu">
   <div class="ctx-item" data-action="add">+ 子ノードを追加</div>
   <div class="ctx-item" data-action="align">⊞ 子ノードを整列</div>
@@ -63,7 +72,14 @@ svg { width: 100%; height: 100%; }
   <div class="ctx-item" data-action="delete" style="color:#e55;">削除</div>
   <div class="ctx-item" data-action="delete-selected" id="ctx-del-sel" style="color:#e55;">選択ノードを削除</div>
 </div>
+<div id="arrow-ctx-menu" class="arrow-ctx-menu">
+  <div class="ctx-color-label">矢印の色</div>
+  <div class="ctx-color-grid" id="arrow-ctx-colors"></div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="arrow-delete" style="color:#e55;">矢印を削除</div>
+</div>
 <div class="controls">
+  <button id="arrowMode" title="矢印モード"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="17" x2="15" y2="5"/><polyline points="9,4 16,4 16,11"/></svg></button>
   <button id="zoomIn" title="ズームイン">+</button>
   <button id="zoomOut" title="ズームアウト">−</button>
   <button id="autoFormat" title="自動整列">⊞</button>
@@ -80,6 +96,7 @@ svg { width: 100%; height: 100%; }
     </defs>
     <g id="viewport">
       <g id="lines"></g>
+      <g id="free-arrows"></g>
       <g id="anchors"></g>
       <g id="nodes"></g>
       <rect id="select-box" x="0" y="0" width="0" height="0" visibility="hidden"/>
@@ -136,6 +153,13 @@ let pendingEditNodeId = null;
 const selectedNodes = new Set();
 let viewX = 0, viewY = 0, scale = 1;
 
+// Free arrow state
+let freeArrows = [];
+let freeArrowIdCounter = 0;
+let isArrowMode = false;
+let selectedArrowId = null;
+let arrowDrawColor = '#5bf';
+
 // Assign IDs
 function assignIds(node) {
   node.id = nodeIdCounter++;
@@ -168,6 +192,8 @@ function snapshotState() {
     customWidth: Object.fromEntries(customWidth),
     collapsed: [...collapsed],
     anchors: Object.fromEntries(anchorOverrides),
+    freeArrows: freeArrows.map(a => ({...a})),
+    freeArrowIdCounter,
   });
 }
 
@@ -197,6 +223,9 @@ function undo() {
   for (const id of (snap.collapsed || [])) collapsed.add(id);
   anchorOverrides.clear();
   for (const [k, v] of Object.entries(snap.anchors || {})) anchorOverrides.set(k, v);
+  freeArrows = (snap.freeArrows || []).map(a => ({...a}));
+  freeArrowIdCounter = snap.freeArrowIdCounter || 0;
+  selectedArrowId = null;
   selectedNodes.clear();
   render();
   updateTransform();
@@ -219,6 +248,8 @@ function saveState() {
       customWidth: Object.fromEntries(customWidth),
       collapsed: [...collapsed],
       anchors: Object.fromEntries(anchorOverrides),
+      freeArrows: freeArrows.map(a => ({...a})),
+      freeArrowIdCounter,
       viewX, viewY, scale,
     };
     localStorage.setItem('mindmap', JSON.stringify(state));
@@ -247,6 +278,8 @@ function loadState() {
     for (const id of (s.collapsed || [])) collapsed.add(id);
     anchorOverrides.clear();
     for (const [k, v] of Object.entries(s.anchors || {})) anchorOverrides.set(k, v);
+    freeArrows = (s.freeArrows || []).map(a => ({...a}));
+    freeArrowIdCounter = s.freeArrowIdCounter || 0;
     viewX = s.viewX || 0; viewY = s.viewY || 0; scale = s.scale || 1;
     return true;
   } catch (e) { return false; }
@@ -260,6 +293,7 @@ function resetAll() {
   assignIds(DATA);
   customPos.clear(); customWidth.clear(); anchorOverrides.clear();
   collapsed.clear(); selectedNodes.clear();
+  freeArrows = []; freeArrowIdCounter = 0; selectedArrowId = null;
   viewX = 0; viewY = 0; scale = 1;
   localStorage.removeItem('mindmap');
 }
@@ -589,8 +623,115 @@ function nearestSide(nx, ny, w, h, mx, my) {
 // Render
 const svgNS = 'http://www.w3.org/2000/svg';
 const linesGroup = document.getElementById('lines');
+const freeArrowsGroup = document.getElementById('free-arrows');
 const anchorsGroup = document.getElementById('anchors');
 const nodesGroup = document.getElementById('nodes');
+const svgDefs = document.querySelector('#mindmap defs');
+
+// Arrow marker cache
+const arrowMarkerCache = new Map();
+
+function getArrowMarker(color) {
+  const key = color.replace('#', '');
+  if (arrowMarkerCache.has(key)) return `url(#arrow-${key})`;
+  const marker = document.createElementNS(svgNS, 'marker');
+  marker.setAttribute('id', `arrow-${key}`);
+  marker.setAttribute('viewBox', '0 0 10 10');
+  marker.setAttribute('refX', '9');
+  marker.setAttribute('refY', '5');
+  marker.setAttribute('markerWidth', '8');
+  marker.setAttribute('markerHeight', '8');
+  marker.setAttribute('orient', 'auto-start-reverse');
+  const poly = document.createElementNS(svgNS, 'polygon');
+  poly.setAttribute('points', '0,1 10,5 0,9');
+  poly.setAttribute('fill', color);
+  marker.appendChild(poly);
+  svgDefs.appendChild(marker);
+  arrowMarkerCache.set(key, true);
+  return `url(#arrow-${key})`;
+}
+
+function renderFreeArrows() {
+  freeArrowsGroup.innerHTML = '';
+  for (const arrow of freeArrows) {
+    const { id, x1, y1, x2, y2, cx, cy, color } = arrow;
+    const markerUrl = getArrowMarker(color);
+    const d = `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
+
+    // Hit area (invisible, wider for easier clicking)
+    const hit = document.createElementNS(svgNS, 'path');
+    hit.setAttribute('d', d);
+    hit.setAttribute('class', 'free-arrow-hit');
+    hit.dataset.arrowId = id;
+    freeArrowsGroup.appendChild(hit);
+
+    // Visible path
+    const path = document.createElementNS(svgNS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'free-arrow-path');
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width', selectedArrowId === id ? '3.5' : '2.5');
+    path.setAttribute('marker-end', markerUrl);
+    if (selectedArrowId === id) {
+      path.setAttribute('stroke-dasharray', '8 4');
+    }
+    path.dataset.arrowId = id;
+    freeArrowsGroup.appendChild(path);
+
+    // Selection handles (only when selected)
+    if (selectedArrowId === id) {
+      // Start point handle
+      const h1 = document.createElementNS(svgNS, 'circle');
+      h1.setAttribute('cx', x1); h1.setAttribute('cy', y1);
+      h1.setAttribute('r', 6); h1.setAttribute('fill', color);
+      h1.setAttribute('stroke', '#fff'); h1.setAttribute('stroke-width', 2);
+      h1.setAttribute('class', 'free-arrow-handle');
+      h1.dataset.handleType = 'start';
+      h1.dataset.arrowId = id;
+      freeArrowsGroup.appendChild(h1);
+
+      // End point handle
+      const h2 = document.createElementNS(svgNS, 'circle');
+      h2.setAttribute('cx', x2); h2.setAttribute('cy', y2);
+      h2.setAttribute('r', 6); h2.setAttribute('fill', color);
+      h2.setAttribute('stroke', '#fff'); h2.setAttribute('stroke-width', 2);
+      h2.setAttribute('class', 'free-arrow-handle');
+      h2.dataset.handleType = 'end';
+      h2.dataset.arrowId = id;
+      freeArrowsGroup.appendChild(h2);
+
+      // Control point handle (diamond shape)
+      const cp = document.createElementNS(svgNS, 'rect');
+      cp.setAttribute('x', cx - 5); cp.setAttribute('y', cy - 5);
+      cp.setAttribute('width', 10); cp.setAttribute('height', 10);
+      cp.setAttribute('transform', `rotate(45,${cx},${cy})`);
+      cp.setAttribute('fill', color); cp.setAttribute('stroke', '#fff');
+      cp.setAttribute('stroke-width', 2);
+      cp.setAttribute('class', 'free-arrow-handle');
+      cp.dataset.handleType = 'control';
+      cp.dataset.arrowId = id;
+      freeArrowsGroup.appendChild(cp);
+
+      // Line from start to control point (guide line)
+      const guide1 = document.createElementNS(svgNS, 'line');
+      guide1.setAttribute('x1', x1); guide1.setAttribute('y1', y1);
+      guide1.setAttribute('x2', cx); guide1.setAttribute('y2', cy);
+      guide1.setAttribute('stroke', 'rgba(255,255,255,0.2)');
+      guide1.setAttribute('stroke-width', 1);
+      guide1.setAttribute('stroke-dasharray', '3 3');
+      freeArrowsGroup.insertBefore(guide1, h1);
+
+      // Line from control to end point (guide line)
+      const guide2 = document.createElementNS(svgNS, 'line');
+      guide2.setAttribute('x1', cx); guide2.setAttribute('y1', cy);
+      guide2.setAttribute('x2', x2); guide2.setAttribute('y2', y2);
+      guide2.setAttribute('stroke', 'rgba(255,255,255,0.2)');
+      guide2.setAttribute('stroke-width', 1);
+      guide2.setAttribute('stroke-dasharray', '3 3');
+      freeArrowsGroup.insertBefore(guide2, h1);
+    }
+  }
+}
 
 // Resolve node overlaps after layout
 function resolveOverlaps(items) {
@@ -972,6 +1113,7 @@ function render() {
     nodesGroup.appendChild(g);
   });
 
+  renderFreeArrows();
   saveState();
 }
 
@@ -1172,6 +1314,99 @@ let isSelecting = false, selStartX = 0, selStartY = 0;
 container.addEventListener('mousedown', (e) => {
   if (e.target.closest('.node-group') || e.target.closest('.anchor-dot')) return;
   hideContextMenu();
+  hideArrowContextMenu();
+
+  // Check if clicking on a free arrow handle
+  const handle = e.target.closest('.free-arrow-handle');
+  if (handle) {
+    e.stopPropagation();
+    e.preventDefault();
+    const arrowId = Number(handle.dataset.arrowId);
+    const handleType = handle.dataset.handleType;
+    const arrow = freeArrows.find(a => a.id === arrowId);
+    if (!arrow) return;
+    pushUndo();
+    const wcx = window.innerWidth / 2, wcy = window.innerHeight / 2;
+    function onMove(ev) {
+      const svgX = (ev.clientX - wcx - viewX) / scale;
+      const svgY = (ev.clientY - wcy - viewY) / scale;
+      if (handleType === 'start') { arrow.x1 = svgX; arrow.y1 = svgY; }
+      else if (handleType === 'end') { arrow.x2 = svgX; arrow.y2 = svgY; }
+      else if (handleType === 'control') { arrow.cx = svgX; arrow.cy = svgY; }
+      renderFreeArrows(); saveState();
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return;
+  }
+
+  // Check if clicking on a free arrow path/hit area
+  const arrowEl = e.target.closest('.free-arrow-hit') || e.target.closest('.free-arrow-path');
+  if (arrowEl) {
+    e.stopPropagation();
+    e.preventDefault();
+    if (e.button === 2) return; // handled by contextmenu
+    const arrowId = Number(arrowEl.dataset.arrowId);
+    selectedArrowId = (selectedArrowId === arrowId) ? null : arrowId;
+    selectedNodes.clear();
+    renderFreeArrows();
+    return;
+  }
+
+  // Arrow drawing mode
+  if (isArrowMode && e.button === 0 && !e.shiftKey) {
+    e.preventDefault();
+    const wcx = window.innerWidth / 2, wcy = window.innerHeight / 2;
+    const startX = (e.clientX - wcx - viewX) / scale;
+    const startY = (e.clientY - wcy - viewY) / scale;
+    pushUndo();
+    const newArrow = {
+      id: freeArrowIdCounter++,
+      x1: startX, y1: startY,
+      x2: startX, y2: startY,
+      cx: startX, cy: startY,
+      color: arrowDrawColor,
+    };
+    freeArrows.push(newArrow);
+    selectedArrowId = newArrow.id;
+
+    function onMove(ev) {
+      const svgX = (ev.clientX - wcx - viewX) / scale;
+      const svgY = (ev.clientY - wcy - viewY) / scale;
+      newArrow.x2 = svgX;
+      newArrow.y2 = svgY;
+      // Auto-set control point to midpoint during drawing
+      newArrow.cx = (newArrow.x1 + svgX) / 2;
+      newArrow.cy = (newArrow.y1 + svgY) / 2;
+      renderFreeArrows();
+    }
+    function onUp(ev) {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      // Remove if too short (accidental click)
+      const len = Math.hypot(newArrow.x2 - newArrow.x1, newArrow.y2 - newArrow.y1);
+      if (len < 10) {
+        freeArrows = freeArrows.filter(a => a.id !== newArrow.id);
+        selectedArrowId = null;
+        undoStack.pop(); // remove the undo snapshot
+      }
+      renderFreeArrows();
+      saveState();
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return;
+  }
+
+  // Deselect arrow on empty click
+  if (selectedArrowId !== null) {
+    selectedArrowId = null;
+    renderFreeArrows();
+  }
 
   if (e.shiftKey) {
     // Shift+drag = rubber band selection
@@ -1296,11 +1531,113 @@ document.getElementById('resetView').addEventListener('click', () => {
   updateTransform();
 });
 
-// Undo: Cmd+Z / Ctrl+Z
+// Arrow mode toggle
+const arrowModeBtn = document.getElementById('arrowMode');
+arrowModeBtn.addEventListener('click', () => {
+  isArrowMode = !isArrowMode;
+  arrowModeBtn.classList.toggle('active', isArrowMode);
+  container.classList.toggle('arrow-mode', isArrowMode);
+  if (!isArrowMode) { selectedArrowId = null; renderFreeArrows(); }
+});
+
+// Arrow context menu
+const arrowCtxMenu = document.getElementById('arrow-ctx-menu');
+let arrowCtxTarget = null;
+
+function showArrowContextMenu(mx, my, arrow) {
+  arrowCtxTarget = arrow;
+  const colorsEl = document.getElementById('arrow-ctx-colors');
+  colorsEl.innerHTML = '';
+  PALETTE.forEach(c => {
+    const dot = document.createElement('span');
+    dot.className = 'color-dot' + (c === arrow.color ? ' active' : '');
+    dot.style.background = c;
+    dot.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      pushUndo();
+      arrow.color = c;
+      renderFreeArrows(); saveState();
+      hideArrowContextMenu();
+    });
+    colorsEl.appendChild(dot);
+  });
+  // Custom color picker
+  const custom = document.createElement('span');
+  custom.className = 'color-custom';
+  const inp = document.createElement('input');
+  inp.type = 'color';
+  inp.value = arrow.color;
+  inp.addEventListener('input', (ev) => {
+    ev.stopPropagation();
+    pushUndo();
+    arrow.color = ev.target.value;
+    arrowDrawColor = ev.target.value;
+    renderFreeArrows(); saveState();
+  });
+  inp.addEventListener('change', () => hideArrowContextMenu());
+  custom.appendChild(inp);
+  colorsEl.appendChild(custom);
+
+  arrowCtxMenu.style.left = mx + 'px';
+  arrowCtxMenu.style.top = my + 'px';
+  arrowCtxMenu.classList.add('show');
+}
+
+function hideArrowContextMenu() { arrowCtxMenu.classList.remove('show'); arrowCtxTarget = null; }
+
+// Arrow right-click on hit area / path
+freeArrowsGroup.addEventListener('contextmenu', (e) => {
+  const arrowEl = e.target.closest('.free-arrow-hit') || e.target.closest('.free-arrow-path');
+  if (!arrowEl) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const arrowId = Number(arrowEl.dataset.arrowId);
+  const arrow = freeArrows.find(a => a.id === arrowId);
+  if (!arrow) return;
+  selectedArrowId = arrowId;
+  renderFreeArrows();
+  showArrowContextMenu(e.clientX, e.clientY, arrow);
+});
+
+arrowCtxMenu.addEventListener('click', (e) => {
+  const action = e.target.closest('.ctx-item')?.dataset.action;
+  if (!action || !arrowCtxTarget) return;
+  e.stopPropagation();
+  if (action === 'arrow-delete') {
+    pushUndo();
+    freeArrows = freeArrows.filter(a => a.id !== arrowCtxTarget.id);
+    selectedArrowId = null;
+    renderFreeArrows(); saveState();
+  }
+  hideArrowContextMenu();
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#arrow-ctx-menu')) hideArrowContextMenu();
+});
+
+// Undo: Cmd+Z / Ctrl+Z  &  Delete/Backspace for selected arrow
 window.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
     e.preventDefault();
     undo();
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedArrowId !== null) {
+    // Don't delete arrow if user is editing a text input
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    e.preventDefault();
+    pushUndo();
+    freeArrows = freeArrows.filter(a => a.id !== selectedArrowId);
+    selectedArrowId = null;
+    renderFreeArrows(); saveState();
+  }
+  // Escape exits arrow mode
+  if (e.key === 'Escape' && isArrowMode) {
+    isArrowMode = false;
+    arrowModeBtn.classList.remove('active');
+    container.classList.remove('arrow-mode');
+    selectedArrowId = null;
+    renderFreeArrows();
   }
 });
 
