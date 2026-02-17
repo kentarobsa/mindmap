@@ -58,10 +58,20 @@ svg { width: 100%; height: 100%; }
 .width-opt { cursor: pointer; border: 2px solid transparent; border-radius: 6px; padding: 4px 8px; transition: border-color 0.15s; display: flex; align-items: center; }
 .width-opt:hover { border-color: rgba(255,255,255,0.5); }
 .width-opt.active { border-color: #fff; }
+.top-bar { position: fixed; top: 0; right: 0; display: flex; align-items: center; gap: 12px; padding: 10px 16px; z-index: 10; }
+.top-bar-name { color: rgba(255,255,255,0.8); font-size: 14px; font-weight: 600; cursor: pointer; padding: 6px 14px; border-radius: 8px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1); transition: background 0.2s; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-bar-name:hover { background: rgba(255,255,255,0.18); }
+.top-bar-btn { color: #ddd; font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 14px; border-radius: 8px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.15); transition: background 0.2s; white-space: nowrap; }
+.top-bar-btn:hover { background: rgba(255,255,255,0.25); color: #fff; }
+.name-edit-input { position: fixed; border: 2px solid #5bf; border-radius: 8px; background: rgba(30,30,60,0.95); color: #fff; font-size: 14px; font-weight: 600; outline: none; z-index: 300; padding: 6px 14px; }
 </style>
 </head>
 <body>
 
+<div class="top-bar">
+  <div id="pageName" class="top-bar-name" title="クリックで名前変更">プロジェクト計画</div>
+  <div id="newPageBtn" class="top-bar-btn">+ New Page</div>
+</div>
 <div id="ctx-menu" class="ctx-menu">
   <div class="ctx-item" data-action="add">+ 子ノードを追加</div>
   <div class="ctx-item" data-action="align">⊞ 子ノードを整列</div>
@@ -1226,7 +1236,10 @@ function startEdit(node, g, w, h, fontSize) {
   input.focus();
   input.select();
 
+  let committed = false;
   function commit() {
+    if (committed) return;
+    committed = true;
     const val = input.value.trim();
     if (val && val !== node.text) {
       pushUndo();
@@ -1237,7 +1250,7 @@ function startEdit(node, g, w, h, fontSize) {
   }
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); commit(); }
-    if (e.key === 'Escape') { input.remove(); }
+    if (e.key === 'Escape') { committed = true; if (input.parentNode) input.remove(); }
   });
   input.addEventListener('blur', commit);
 }
@@ -1781,6 +1794,58 @@ window.addEventListener('keydown', (e) => {
 
 // Resize
 window.addEventListener('resize', updateTransform);
+
+// Top bar: page name & new page
+const pageNameEl = document.getElementById('pageName');
+let pageName = localStorage.getItem('mindmap_name') || 'プロジェクト計画';
+pageNameEl.textContent = pageName;
+document.title = pageName;
+
+pageNameEl.addEventListener('click', () => {
+  const rect = pageNameEl.getBoundingClientRect();
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'name-edit-input';
+  input.value = pageName;
+  input.style.left = rect.left + 'px';
+  input.style.top = rect.top + 'px';
+  input.style.width = Math.max(200, rect.width) + 'px';
+  input.style.height = rect.height + 'px';
+  document.body.appendChild(input);
+  input.focus();
+  input.select();
+  let committed = false;
+  function commit() {
+    if (committed) return;
+    committed = true;
+    const val = input.value.trim();
+    if (val) {
+      pageName = val;
+      pageNameEl.textContent = val;
+      document.title = val;
+      localStorage.setItem('mindmap_name', val);
+    }
+    if (input.parentNode) input.remove();
+  }
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { committed = true; if (input.parentNode) input.remove(); }
+  });
+  input.addEventListener('blur', commit);
+});
+
+document.getElementById('newPageBtn').addEventListener('click', () => {
+  if (!confirm('新しいページを作成しますか？\n現在の内容はリセットされます。')) return;
+  resetAll();
+  pageName = '新規ページ';
+  pageNameEl.textContent = pageName;
+  document.title = pageName;
+  localStorage.setItem('mindmap_name', pageName);
+  freeArrows = []; freeArrowIdCounter = 0; selectedArrowId = null;
+  render();
+  updateTransform();
+  autoFormat();
+});
 
 // Init
 render();
