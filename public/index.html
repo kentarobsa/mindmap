@@ -45,6 +45,7 @@ svg { width: 100%; height: 100%; }
 <div class="hint">ドラッグで移動 ・ クリックで編集 ・ Shift+クリックで複数選択 ・ Shift+ドラッグで範囲選択 ・ 右クリックでメニュー</div>
 <div id="ctx-menu" class="ctx-menu">
   <div class="ctx-item" data-action="add">+ 子ノードを追加</div>
+  <div class="ctx-item" data-action="align">⊞ 子ノードを整列</div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" data-action="toggle" id="ctx-toggle">折りたたむ</div>
   <div class="ctx-sep"></div>
@@ -54,6 +55,7 @@ svg { width: 100%; height: 100%; }
 <div class="controls">
   <button id="zoomIn" title="ズームイン">+</button>
   <button id="zoomOut" title="ズームアウト">−</button>
+  <button id="autoFormat" title="自動整列">⊞</button>
   <button id="resetView" title="リセット">⌂</button>
 </div>
 
@@ -369,6 +371,94 @@ function getNodeDepth(node) {
     cur = p;
   }
   return depth;
+}
+
+// Default node width from text length (without customWidth)
+function defaultNodeWidth(node, depth) {
+  const tl = node.text.length;
+  return depth === 0 ? Math.max(180, tl * 18 + 40) : Math.max(100, tl * 14 + 30);
+}
+
+// Auto-format: clean left-to-right tree layout
+function autoFormat() {
+  customPos.clear();
+  customWidth.clear();
+  anchorOverrides.clear();
+  autoFormatFrom(DATA, 0, 0, 0);
+  render();
+  updateTransform();
+}
+
+function autoFormatFrom(root, startDepth, startX, startY) {
+  const H_GAP = 80;
+  const V_GAP = 20;
+  const NODE_H = 38;
+  const ROOT_H = 56;
+
+  // Step 1: Collect max natural width per relative depth
+  const maxW = {};
+  function collectWidths(node, rel) {
+    const d = startDepth + rel;
+    const w = defaultNodeWidth(node, d);
+    if (!maxW[rel] || w > maxW[rel]) maxW[rel] = w;
+    if (!collapsed.has(node.id) && node.children && node.children.length) {
+      node.children.forEach(c => collectWidths(c, rel + 1));
+    }
+  }
+  collectWidths(root, 0);
+
+  // Step 2: Compute subtree heights
+  function subtreeH(node, rel) {
+    const h = (startDepth + rel === 0) ? ROOT_H : NODE_H;
+    if (collapsed.has(node.id) || !node.children || !node.children.length) return h;
+    let total = node.children.reduce((s, c) => s + subtreeH(c, rel + 1), 0);
+    total += (node.children.length - 1) * V_GAP;
+    return Math.max(h, total);
+  }
+
+  // Step 3: Recursive layout
+  function layout(node, rel, x, yCenter) {
+    const w = maxW[rel];
+    customWidth.set(node.id, w);
+    customPos.set(node.id, { x, y: yCenter });
+
+    if (collapsed.has(node.id) || !node.children || !node.children.length) return;
+
+    const nextW = maxW[rel + 1] || 100;
+    const nextX = x + w / 2 + H_GAP + nextW / 2;
+
+    const childH = node.children.map(c => subtreeH(c, rel + 1));
+    const totalH = childH.reduce((a, b) => a + b, 0) + (node.children.length - 1) * V_GAP;
+
+    let curY = yCenter - totalH / 2;
+    for (let i = 0; i < node.children.length; i++) {
+      layout(node.children[i], rel + 1, nextX, curY + childH[i] / 2);
+      curY += childH[i] + V_GAP;
+    }
+  }
+
+  layout(root, 0, startX, startY);
+}
+
+// Auto-format subtree only (keep root position, format children)
+function autoFormatSubtree(parentNode) {
+  if (!parentNode.children || parentNode.children.length === 0) return;
+  const depth = getNodeDepth(parentNode);
+  // Clear custom data for all descendants
+  function clearDescendants(node) {
+    if (!node.children) return;
+    for (const c of node.children) {
+      customPos.delete(c.id);
+      customWidth.delete(c.id);
+      clearDescendants(c);
+    }
+  }
+  clearDescendants(parentNode);
+  // Re-format from this node keeping its position
+  autoFormatFrom(parentNode, depth, parentNode._x || 0, parentNode._y || 0);
+  anchorOverrides.clear();
+  render();
+  updateTransform();
 }
 
 // Anchor utilities
@@ -831,6 +921,8 @@ function showContextMenu(mx, my, node, g, w, h, fontSize) {
   ctxToggle.textContent = !hasChildren ? '(子ノードなし)' : isCollapsed ? '展開する' : '折りたたむ';
   ctxToggle.style.opacity = hasChildren ? '1' : '0.4';
   ctxToggle.style.pointerEvents = hasChildren ? 'auto' : 'none';
+  const alignItem = ctxMenu.querySelector('[data-action="align"]');
+  alignItem.style.display = hasChildren ? '' : 'none';
   const delItem = ctxMenu.querySelector('[data-action="delete"]');
   delItem.style.display = node.id === DATA.id ? 'none' : '';
   const delSelItem = document.getElementById('ctx-del-sel');
@@ -857,6 +949,8 @@ ctxMenu.addEventListener('click', (e) => {
     const newNode = addChildNode(ctxNode);
     pendingEditNodeId = newNode.id;
     render(); updateTransform();
+  } else if (action === 'align') {
+    autoFormatSubtree(ctxNode);
   } else if (action === 'toggle') {
     if (ctxNode.children && ctxNode.children.length > 0) {
       if (collapsed.has(ctxNode.id)) collapsed.delete(ctxNode.id);
@@ -1027,6 +1121,9 @@ document.getElementById('zoomIn').addEventListener('click', () => {
 document.getElementById('zoomOut').addEventListener('click', () => {
   scale = Math.max(0.2, scale * 0.8);
   updateTransform();
+});
+document.getElementById('autoFormat').addEventListener('click', () => {
+  autoFormat();
 });
 document.getElementById('resetView').addEventListener('click', () => {
   resetAll();
