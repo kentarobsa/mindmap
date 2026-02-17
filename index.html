@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>マインドマップ - プロジェクト計画</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', 'Hiragino Sans', sans-serif; background: #1a1a2e; }
+#container { width: 100%; height: 100%; cursor: grab; }
+#container.grabbing { cursor: grabbing; }
+svg { width: 100%; height: 100%; }
+.node-group { cursor: grab; }
+.node-group.dragging { cursor: grabbing; }
+.node-rect.drop-target { stroke: #fff !important; stroke-width: 3 !important; stroke-dasharray: 6 3; filter: brightness(1.5) drop-shadow(0 0 12px rgba(255,255,255,0.6)) !important; }
+.node-rect { rx: 12; ry: 12; stroke-width: 2; transition: filter 0.2s; }
+.node-group:hover .node-rect { filter: brightness(1.2) drop-shadow(0 0 8px rgba(255,255,255,0.3)); }
+.node-text { fill: #fff; font-weight: 600; text-anchor: middle; dominant-baseline: central; pointer-events: none; user-select: none; }
+.branch-line { fill: none; stroke-width: 3; stroke-linecap: round; opacity: 0.7; }
+.anchor-dot { cursor: crosshair; opacity: 0; transition: opacity 0.15s; }
+.anchor-dot:hover { opacity: 1 !important; }
+.resize-handle { cursor: ew-resize; opacity: 0; transition: opacity 0.15s; }
+.node-group:hover .resize-handle { opacity: 0.8; }
+.badge { pointer-events: none; user-select: none; }
+.badge rect { rx: 8; ry: 8; }
+.badge text { fill: #fff; font-size: 10px; font-weight: 700; text-anchor: middle; dominant-baseline: central; }
+.ctx-menu { position: fixed; display: none; background: rgba(20,20,45,0.96); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 6px 0; z-index: 200; min-width: 170px; backdrop-filter: blur(12px); box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
+.ctx-menu.show { display: block; }
+.ctx-item { padding: 9px 18px; color: #ddd; cursor: pointer; font-size: 14px; font-family: inherit; display: flex; align-items: center; gap: 8px; }
+.ctx-item:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.ctx-item:first-child { border-radius: 10px 10px 0 0; }
+.ctx-item:last-child { border-radius: 0 0 10px 10px; }
+.ctx-sep { height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0; }
+.controls { position: fixed; bottom: 20px; right: 20px; display: flex; gap: 8px; z-index: 10; }
+.controls button { width: 40px; height: 40px; border: none; border-radius: 10px; background: rgba(255,255,255,0.15); color: #fff; font-size: 18px; cursor: pointer; backdrop-filter: blur(8px); transition: background 0.2s; }
+.controls button:hover { background: rgba(255,255,255,0.3); }
+.hint { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.5); font-size: 13px; pointer-events: none; z-index: 10; }
+.edit-input { position: fixed; border: 2px solid #fff; border-radius: 8px; background: rgba(30,30,60,0.95); color: #fff; font-weight: 600; text-align: center; outline: none; z-index: 100; padding: 4px 8px; }
+.node-rect.selected { stroke: #5bf !important; stroke-width: 3 !important; filter: drop-shadow(0 0 8px rgba(85,187,255,0.5)) !important; }
+#select-box { fill: rgba(85,187,255,0.1); stroke: rgba(85,187,255,0.6); stroke-width: 1.5; stroke-dasharray: 5 3; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div class="hint">ドラッグで移動 ・ クリックで編集 ・ Shift+クリックで複数選択 ・ Shift+ドラッグで範囲選択 ・ 右クリックでメニュー</div>
+<div id="ctx-menu" class="ctx-menu">
+  <div class="ctx-item" data-action="add">+ 子ノードを追加</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="toggle" id="ctx-toggle">折りたたむ</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="delete" style="color:#e55;">削除</div>
+  <div class="ctx-item" data-action="delete-selected" id="ctx-del-sel" style="color:#e55;">選択ノードを削除</div>
+</div>
+<div class="controls">
+  <button id="zoomIn" title="ズームイン">+</button>
+  <button id="zoomOut" title="ズームアウト">−</button>
+  <button id="resetView" title="リセット">⌂</button>
+</div>
+
+<div id="container">
+  <svg id="mindmap">
+    <defs>
+      <filter id="glow">
+        <feGaussianBlur stdDeviation="3" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <g id="viewport">
+      <g id="lines"></g>
+      <g id="anchors"></g>
+      <g id="nodes"></g>
+      <rect id="select-box" x="0" y="0" width="0" height="0" visibility="hidden"/>
+    </g>
+  </svg>
+</div>
+
+<script>
+const DATA = {
+  text: 'プロジェクト計画',
+  color: '#e94560',
+  children: [
+    {
+      text: '目標設定', color: '#f5a623',
+      children: [
+        { text: 'KPI定義', color: '#f5a623', children: [] },
+        { text: 'マイルストーン', color: '#f5a623', children: [] },
+        { text: 'ビジョン共有', color: '#f5a623', children: [] },
+      ]
+    },
+    {
+      text: 'チーム編成', color: '#7ed321',
+      children: [
+        { text: 'PM選定', color: '#7ed321', children: [] },
+        { text: 'エンジニア', color: '#7ed321', children: [] },
+        { text: 'デザイナー', color: '#7ed321', children: [] },
+        { text: 'QA担当', color: '#7ed321', children: [] },
+      ]
+    },
+    {
+      text: '技術選定', color: '#4a90d9',
+      children: [
+        { text: 'フロントエンド', color: '#4a90d9', children: [
+          { text: 'React', color: '#4a90d9', children: [] },
+          { text: 'TypeScript', color: '#4a90d9', children: [] },
+        ]},
+        { text: 'バックエンド', color: '#4a90d9', children: [
+          { text: 'Node.js', color: '#4a90d9', children: [] },
+          { text: 'PostgreSQL', color: '#4a90d9', children: [] },
+        ]},
+        { text: 'インフラ', color: '#4a90d9', children: [
+          { text: 'AWS', color: '#4a90d9', children: [] },
+          { text: 'Docker', color: '#4a90d9', children: [] },
+        ]},
+      ]
+    },
+    {
+      text: 'スケジュール', color: '#bd10e0',
+      children: [
+        { text: 'Phase 1: 設計', color: '#bd10e0', children: [] },
+        { text: 'Phase 2: 開発', color: '#bd10e0', children: [] },
+        { text: 'Phase 3: テスト', color: '#bd10e0', children: [] },
+        { text: 'Phase 4: リリース', color: '#bd10e0', children: [] },
+      ]
+    },
+    {
+      text: 'リスク管理', color: '#e05555',
+      children: [
+        { text: 'リスク特定', color: '#e05555', children: [] },
+        { text: '対策立案', color: '#e05555', children: [] },
+        { text: 'モニタリング', color: '#e05555', children: [] },
+      ]
+    },
+    {
+      text: '予算管理', color: '#50e3c2',
+      children: [
+        { text: '人件費', color: '#50e3c2', children: [] },
+        { text: 'ツール費用', color: '#50e3c2', children: [] },
+        { text: 'インフラ費用', color: '#50e3c2', children: [] },
+        { text: '予備費', color: '#50e3c2', children: [] },
+      ]
+    },
+  ]
+};
+
+const DEFAULT_TREE = JSON.parse(JSON.stringify(DATA)); // deep copy for reset
+
+// State
+const collapsed = new Set();
+const customPos = new Map();
+const customWidth = new Map();
+const anchorOverrides = new Map();
+let nodeIdCounter = 0;
+const nodeMap = new Map();
+let dropTargetId = null;
+let lastNodeBoxes = [];
+let pendingEditNodeId = null;
+const selectedNodes = new Set();
+
+// Assign IDs
+function assignIds(node) {
+  node.id = nodeIdCounter++;
+  nodeMap.set(node.id, node);
+  if (node.children) node.children.forEach(assignIds);
+}
+
+// Serialize tree for saving
+function serializeTree(node) {
+  return { id: node.id, text: node.text, color: node.color,
+    children: (node.children || []).map(serializeTree) };
+}
+
+function rebuildNode(saved) {
+  const node = { id: saved.id, text: saved.text, color: saved.color,
+    children: (saved.children || []).map(rebuildNode) };
+  nodeMap.set(node.id, node);
+  if (node.id >= nodeIdCounter) nodeIdCounter = node.id + 1;
+  return node;
+}
+
+// Auto-save to localStorage
+function saveState() {
+  try {
+    const state = {
+      tree: serializeTree(DATA),
+      customPos: Object.fromEntries(customPos),
+      customWidth: Object.fromEntries(customWidth),
+      collapsed: [...collapsed],
+      anchors: Object.fromEntries(anchorOverrides),
+      viewX, viewY, scale,
+    };
+    localStorage.setItem('mindmap', JSON.stringify(state));
+  } catch (e) {}
+}
+
+// Load from localStorage
+function loadState() {
+  try {
+    const raw = localStorage.getItem('mindmap');
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    // Restore tree
+    nodeIdCounter = 0; nodeMap.clear();
+    const tree = s.tree;
+    DATA.id = tree.id; DATA.text = tree.text; DATA.color = tree.color;
+    DATA.children = (tree.children || []).map(rebuildNode);
+    nodeMap.set(DATA.id, DATA);
+    if (DATA.id >= nodeIdCounter) nodeIdCounter = DATA.id + 1;
+    // Restore maps
+    customPos.clear();
+    for (const [k, v] of Object.entries(s.customPos || {})) customPos.set(Number(k), v);
+    customWidth.clear();
+    for (const [k, v] of Object.entries(s.customWidth || {})) customWidth.set(Number(k), v);
+    collapsed.clear();
+    for (const id of (s.collapsed || [])) collapsed.add(id);
+    anchorOverrides.clear();
+    for (const [k, v] of Object.entries(s.anchors || {})) anchorOverrides.set(k, v);
+    viewX = s.viewX || 0; viewY = s.viewY || 0; scale = s.scale || 1;
+    return true;
+  } catch (e) { return false; }
+}
+
+// Reset to default tree
+function resetAll() {
+  const def = JSON.parse(JSON.stringify(DEFAULT_TREE));
+  nodeIdCounter = 0; nodeMap.clear();
+  DATA.text = def.text; DATA.color = def.color; DATA.children = def.children;
+  assignIds(DATA);
+  customPos.clear(); customWidth.clear(); anchorOverrides.clear();
+  collapsed.clear(); selectedNodes.clear();
+  viewX = 0; viewY = 0; scale = 1;
+  localStorage.removeItem('mindmap');
+}
+
+// Init: load saved state or assign fresh IDs
+if (!loadState()) { assignIds(DATA); }
+
+// Layout
+function computeLayout(node, depth, angleStart, angleEnd, parentX, parentY, pNode) {
+  const items = [];
+  if (depth === 0) {
+    const pos = customPos.get(node.id);
+    const x = pos ? pos.x : 0;
+    const y = pos ? pos.y : 0;
+    node._x = x;
+    node._y = y;
+    items.push({ node, x, y, depth, parentNode: null });
+    if (!collapsed.has(node.id) && node.children.length) {
+      const step = (angleEnd - angleStart) / node.children.length;
+      node.children.forEach((child, i) => {
+        const a0 = angleStart + step * i;
+        const a1 = a0 + step;
+        items.push(...computeLayout(child, 1, a0, a1, x, y, node));
+      });
+    }
+  } else {
+    const angleMid = (angleStart + angleEnd) / 2;
+    const dist = depth === 1 ? 220 : 140 + depth * 20;
+    let x, y;
+    const pos = customPos.get(node.id);
+    if (pos) {
+      x = pos.x;
+      y = pos.y;
+    } else {
+      x = parentX + Math.cos(angleMid) * dist;
+      y = parentY + Math.sin(angleMid) * dist;
+    }
+    node._x = x;
+    node._y = y;
+    items.push({ node, x, y, depth, parentX, parentY, parentNode: pNode });
+    if (!collapsed.has(node.id) && node.children && node.children.length) {
+      const spread = Math.min((angleEnd - angleStart), Math.PI * 0.6);
+      const mid = angleMid;
+      const cStart = mid - spread / 2;
+      const step = node.children.length > 1 ? spread / (node.children.length - 1) : 0;
+      node.children.forEach((child, i) => {
+        const a = node.children.length > 1 ? cStart + step * i : mid;
+        const halfStep = spread / node.children.length / 2;
+        items.push(...computeLayout(child, depth + 1, a - halfStep, a + halfStep, x, y, node));
+      });
+    }
+  }
+  return items;
+}
+
+// Line-rect intersection (Liang-Barsky), ignoring near-endpoints
+function segHitsRect(x1, y1, x2, y2, l, t, r, b) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const p = [-dx, dx, -dy, dy];
+  const q = [x1 - l, r - x1, y1 - t, b - y1];
+  let u1 = 0, u2 = 1;
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) { if (q[i] < 0) return false; }
+    else {
+      const u = q[i] / p[i];
+      if (p[i] < 0) u1 = Math.max(u1, u);
+      else u2 = Math.min(u2, u);
+      if (u1 > u2) return false;
+    }
+  }
+  return u1 < 0.92 && u2 > 0.08;
+}
+
+// Get node width for a given item
+function nodeWidth(node, depth) {
+  if (customWidth.has(node.id)) return customWidth.get(node.id);
+  const tl = node.text.length;
+  return depth === 0 ? Math.max(180, tl * 18 + 40) : Math.max(100, tl * 14 + 30);
+}
+
+// Tree manipulation
+function findParent(target, tree) {
+  if (tree.children) {
+    for (const child of tree.children) {
+      if (child.id === target.id) return tree;
+      const found = findParent(target, child);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function isDescendantOf(ancestor, node) {
+  if (!ancestor.children) return false;
+  for (const child of ancestor.children) {
+    if (child.id === node.id) return true;
+    if (isDescendantOf(child, node)) return true;
+  }
+  return false;
+}
+
+function reparentNode(node, newParent) {
+  const oldParent = findParent(node, DATA);
+  if (!oldParent || oldParent.id === newParent.id) return;
+  // Remove from old parent
+  oldParent.children = oldParent.children.filter(c => c.id !== node.id);
+  // Add to new parent
+  if (!newParent.children) newParent.children = [];
+  newParent.children.push(node);
+  // Update color to match new branch
+  function setColor(n, color) { n.color = color; if (n.children) n.children.forEach(c => setColor(c, color)); }
+  setColor(node, newParent.color);
+  // Clean up old anchor overrides
+  const oldKey = `${oldParent.id}-${node.id}`;
+  anchorOverrides.delete(oldKey);
+  // Clear custom position so it gets a fresh layout position
+  customPos.delete(node.id);
+}
+
+function addChildNode(parentNode) {
+  const newNode = {
+    text: '新規',
+    color: parentNode.color,
+    children: [],
+    id: nodeIdCounter++,
+  };
+  nodeMap.set(newNode.id, newNode);
+  if (!parentNode.children) parentNode.children = [];
+  parentNode.children.push(newNode);
+  collapsed.delete(parentNode.id);
+  return newNode;
+}
+
+function getNodeDepth(node) {
+  let depth = 0, cur = node;
+  while (true) {
+    const p = findParent(cur, DATA);
+    if (!p) break;
+    depth++;
+    cur = p;
+  }
+  return depth;
+}
+
+// Anchor utilities
+function autoSide(fromX, fromY, toX, toY) {
+  const a = Math.atan2(toY - fromY, toX - fromX);
+  if (a >= -Math.PI / 4 && a < Math.PI / 4) return 'right';
+  if (a >= Math.PI / 4 && a < 3 * Math.PI / 4) return 'bottom';
+  if (a >= -3 * Math.PI / 4 && a < -Math.PI / 4) return 'top';
+  return 'left';
+}
+
+function anchorPos(cx, cy, w, h, side) {
+  switch (side) {
+    case 'top': return { x: cx, y: cy - h / 2 };
+    case 'bottom': return { x: cx, y: cy + h / 2 };
+    case 'left': return { x: cx - w / 2, y: cy };
+    case 'right': return { x: cx + w / 2, y: cy };
+  }
+}
+
+function nearestSide(nx, ny, w, h, mx, my) {
+  const sides = {
+    top: { x: nx, y: ny - h / 2 },
+    bottom: { x: nx, y: ny + h / 2 },
+    left: { x: nx - w / 2, y: ny },
+    right: { x: nx + w / 2, y: ny },
+  };
+  let best = 'right', bestD = Infinity;
+  for (const [s, p] of Object.entries(sides)) {
+    const d = Math.hypot(mx - p.x, my - p.y);
+    if (d < bestD) { bestD = d; best = s; }
+  }
+  return best;
+}
+
+// Render
+const svgNS = 'http://www.w3.org/2000/svg';
+const linesGroup = document.getElementById('lines');
+const anchorsGroup = document.getElementById('anchors');
+const nodesGroup = document.getElementById('nodes');
+
+// Resolve node overlaps after layout
+function resolveOverlaps(items) {
+  const gap = 18;
+  for (let iter = 0; iter < 20; iter++) {
+    let moved = false;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].depth === 0) continue; // don't push root
+      for (let j = i + 1; j < items.length; j++) {
+        if (items[j].depth === 0) continue;
+        const a = items[i], b = items[j];
+        const aw = nodeWidth(a.node, a.depth);
+        const ah = a.depth === 0 ? 56 : 38;
+        const bw = nodeWidth(b.node, b.depth);
+        const bh = b.depth === 0 ? 56 : 38;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const ox = (aw + bw) / 2 + gap - Math.abs(dx);
+        const oy = (ah + bh) / 2 + gap - Math.abs(dy);
+        if (ox > 0 && oy > 0) {
+          moved = true;
+          // Push along axis with less overlap
+          const aFixed = customPos.has(a.node.id) || customWidth.has(a.node.id);
+          const bFixed = customPos.has(b.node.id) || customWidth.has(b.node.id);
+          let ra = 0.5, rb = 0.5;
+          if (aFixed && !bFixed) { ra = 0; rb = 1; }
+          else if (bFixed && !aFixed) { ra = 1; rb = 0; }
+          else if (aFixed && bFixed) { ra = 0.5; rb = 0.5; }
+          if (ox < oy) {
+            const p = ox + 0.5;
+            if (dx >= 0) { a.x -= p * ra; b.x += p * rb; }
+            else { a.x += p * ra; b.x -= p * rb; }
+          } else {
+            const p = oy + 0.5;
+            if (dy >= 0) { a.y -= p * ra; b.y += p * rb; }
+            else { a.y += p * ra; b.y -= p * rb; }
+          }
+          a.node._x = a.x; b.node._x = b.x;
+          a.node._y = a.y; b.node._y = b.y;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  // Update parent references after positions changed
+  const posMap = new Map(items.map(it => [it.node.id, { x: it.x, y: it.y }]));
+  for (const item of items) {
+    if (item.parentNode) {
+      const pp = posMap.get(item.parentNode.id);
+      if (pp) { item.parentX = pp.x; item.parentY = pp.y; }
+    }
+  }
+}
+
+function render() {
+  const items = computeLayout(DATA, 0, -Math.PI, Math.PI, 0, 0);
+  resolveOverlaps(items);
+  linesGroup.innerHTML = '';
+  anchorsGroup.innerHTML = '';
+  nodesGroup.innerHTML = '';
+
+  // Build node boxes for collision detection & anchor lookup
+  const nodeBoxes = items.map(it => {
+    const w = nodeWidth(it.node, it.depth);
+    const h = it.depth === 0 ? 56 : 38;
+    return { id: it.node.id, x: it.x, y: it.y, w, h, depth: it.depth };
+  });
+  const boxById = new Map(nodeBoxes.map(b => [b.id, b]));
+  lastNodeBoxes = nodeBoxes;
+
+  // Draw lines with anchors
+  items.forEach(({ node, x, y, depth, parentX, parentY, parentNode }) => {
+    if (depth === 0) return;
+    const pid = parentNode ? parentNode.id : -1;
+    const key = `${pid}-${node.id}`;
+    const pBox = boxById.get(pid);
+    const cBox = boxById.get(node.id);
+    if (!pBox || !cBox) return;
+
+    // Determine anchor sides
+    const override = anchorOverrides.get(key);
+    const fromSide = override ? override.from : autoSide(pBox.x, pBox.y, cBox.x, cBox.y);
+    const toSide = override ? override.to : autoSide(cBox.x, cBox.y, pBox.x, pBox.y);
+    const fp = anchorPos(pBox.x, pBox.y, pBox.w, pBox.h, fromSide);
+    const tp = anchorPos(cBox.x, cBox.y, cBox.w, cBox.h, toSide);
+
+    // Collision detection on anchor-to-anchor line
+    const pad = 6;
+    const hits = [];
+    for (const box of nodeBoxes) {
+      if (box.id === node.id || box.id === pid) continue;
+      if (segHitsRect(fp.x, fp.y, tp.x, tp.y,
+          box.x - box.w / 2 - pad, box.y - box.h / 2 - pad,
+          box.x + box.w / 2 + pad, box.y + box.h / 2 + pad)) {
+        hits.push(box);
+      }
+    }
+
+    const path = document.createElementNS(svgNS, 'path');
+    let d;
+
+    if (hits.length > 0) {
+      const dx = tp.x - fp.x, dy = tp.y - fp.y;
+      const len = Math.hypot(dx, dy) || 1;
+      let px = -dy / len, py = dx / len;
+      let sumPerp = 0;
+      for (const box of hits) {
+        sumPerp += (box.x - fp.x) * px + (box.y - fp.y) * py;
+      }
+      if (sumPerp > 0) { px = -px; py = -py; }
+      let needBow = 0;
+      for (const box of hits) {
+        const cd = -((box.x - fp.x) * px + (box.y - fp.y) * py);
+        needBow = Math.max(needBow, cd + Math.max(box.w / 2, box.h / 2) + pad);
+      }
+      const bow = needBow + 8;
+      const mx = fp.x + dx * 0.5 + px * bow;
+      const my = fp.y + dy * 0.5 + py * bow;
+      d = `M${fp.x},${fp.y} Q${mx},${my} ${tp.x},${tp.y}`;
+    } else {
+      d = `M${fp.x},${fp.y} L${tp.x},${tp.y}`;
+    }
+
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'branch-line');
+    path.setAttribute('stroke', node.color);
+    path.setAttribute('stroke-width', Math.max(2, 4 - depth));
+    linesGroup.appendChild(path);
+
+    // Draggable anchor dots (from = parent side, to = child side)
+    [{ pos: fp, box: pBox, end: 'from' }, { pos: tp, box: cBox, end: 'to' }].forEach(({ pos, box, end }) => {
+      const dot = document.createElementNS(svgNS, 'circle');
+      dot.setAttribute('cx', pos.x);
+      dot.setAttribute('cy', pos.y);
+      dot.setAttribute('r', 6);
+      dot.setAttribute('fill', node.color);
+      dot.setAttribute('stroke', '#fff');
+      dot.setAttribute('stroke-width', 2);
+      dot.setAttribute('class', 'anchor-dot');
+      dot.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        dot.style.opacity = '1';
+        function onMove(ev) {
+          const wcx = window.innerWidth / 2;
+          const wcy = window.innerHeight / 2;
+          const svgX = (ev.clientX - wcx - viewX) / scale;
+          const svgY = (ev.clientY - wcy - viewY) / scale;
+          const side = nearestSide(box.x, box.y, box.w, box.h, svgX, svgY);
+          const cur = anchorOverrides.get(key) || { from: fromSide, to: toSide };
+          if (end === 'from') cur.from = side; else cur.to = side;
+          anchorOverrides.set(key, cur);
+          render();
+          updateTransform();
+        }
+        function onUp() {
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+        }
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+      anchorsGroup.appendChild(dot);
+    });
+  });
+
+  // Draw nodes
+  items.forEach(({ node, x, y, depth }) => {
+    const g = document.createElementNS(svgNS, 'g');
+    g.setAttribute('class', 'node-group');
+    g.setAttribute('transform', `translate(${x},${y})`);
+
+    const isRoot = depth === 0;
+    const hasChildren = node.children && node.children.length > 0;
+    const isCollapsed = collapsed.has(node.id);
+
+    // Size
+    const textLen = node.text.length;
+    const autoW = isRoot ? Math.max(180, textLen * 18 + 40) : Math.max(100, textLen * 14 + 30);
+    const w = customWidth.has(node.id) ? customWidth.get(node.id) : autoW;
+    const h = isRoot ? 56 : 38;
+    const fontSize = isRoot ? 18 : 14;
+
+    // Rect
+    const rect = document.createElementNS(svgNS, 'rect');
+    rect.setAttribute('x', -w / 2);
+    rect.setAttribute('y', -h / 2);
+    rect.setAttribute('width', w);
+    rect.setAttribute('height', h);
+    rect.setAttribute('class', 'node-rect');
+    rect.setAttribute('fill', node.color);
+    rect.setAttribute('stroke', isRoot ? '#fff' : adjustColor(node.color, 30));
+    if (isRoot) rect.setAttribute('filter', 'url(#glow)');
+    if (node.id === dropTargetId) rect.classList.add('drop-target');
+    if (selectedNodes.has(node.id)) rect.classList.add('selected');
+    g.appendChild(rect);
+
+    // Text
+    const text = document.createElementNS(svgNS, 'text');
+    text.setAttribute('class', 'node-text');
+    text.setAttribute('font-size', fontSize);
+    text.textContent = node.text;
+    g.appendChild(text);
+
+    // Resize handles (left & right edges)
+    ['left', 'right'].forEach(side => {
+      const rh = document.createElementNS(svgNS, 'rect');
+      rh.setAttribute('x', side === 'right' ? w / 2 - 5 : -w / 2 - 5);
+      rh.setAttribute('y', -h / 2);
+      rh.setAttribute('width', 10);
+      rh.setAttribute('height', h);
+      rh.setAttribute('rx', 3);
+      rh.setAttribute('class', 'resize-handle');
+      rh.setAttribute('fill', 'rgba(255,255,255,0.5)');
+      rh.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const startX = e.clientX;
+        const origW = w;
+        const origNodeX = node._x;
+        function onMove(ev) {
+          const dx = (ev.clientX - startX) / scale;
+          const minW = 60;
+          let newW, newX;
+          if (side === 'right') {
+            newW = Math.max(minW, origW + dx);
+            newX = origNodeX + dx / 2;
+          } else {
+            newW = Math.max(minW, origW - dx);
+            newX = origNodeX + dx / 2;
+          }
+          customWidth.set(node.id, newW);
+          customPos.set(node.id, { x: newX, y: node._y });
+          render();
+          updateTransform();
+        }
+        function onUp() {
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+        }
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+      g.appendChild(rh);
+    });
+
+    // Collapsed badge (small count inside node corner)
+    if (hasChildren && isCollapsed) {
+      const count = countDescendants(node);
+      const bg = document.createElementNS(svgNS, 'g');
+      bg.setAttribute('class', 'badge');
+      bg.setAttribute('transform', `translate(${w / 2 - 4}, ${-h / 2 + 4})`);
+      const br = document.createElementNS(svgNS, 'rect');
+      br.setAttribute('x', -12); br.setAttribute('y', -8);
+      br.setAttribute('width', 24); br.setAttribute('height', 16);
+      br.setAttribute('fill', 'rgba(0,0,0,0.45)');
+      bg.appendChild(br);
+      const bt = document.createElementNS(svgNS, 'text');
+      bt.textContent = '+' + count;
+      bg.appendChild(bt);
+      g.appendChild(bg);
+    }
+
+    // Auto-start edit for newly added node
+    if (node.id === pendingEditNodeId) {
+      pendingEditNodeId = null;
+      requestAnimationFrame(() => startEdit(node, g, w, h, fontSize));
+    }
+
+    // Right-click context menu
+    g.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(e.clientX, e.clientY, node, g, w, h, fontSize);
+    });
+
+    // Drag to move / Click to edit / Shift+Click to select
+    g.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const isShift = e.shiftKey;
+      const startMX = e.clientX;
+      const startMY = e.clientY;
+      let dragged = false;
+
+      // Snapshot original positions of this node + all selected
+      const origPositions = new Map();
+      const moveSet = new Set(selectedNodes);
+      moveSet.add(node.id);
+      for (const nid of moveSet) {
+        const n = nodeMap.get(nid);
+        if (n) origPositions.set(nid, { x: n._x, y: n._y });
+      }
+
+      function onMove(ev) {
+        const dx = ev.clientX - startMX;
+        const dy = ev.clientY - startMY;
+        if (!dragged && Math.hypot(dx, dy) < 5) return;
+        dragged = true;
+        const ddx = dx / scale, ddy = dy / scale;
+
+        if (selectedNodes.has(node.id) && selectedNodes.size > 1) {
+          // Move all selected nodes together
+          for (const [nid, orig] of origPositions) {
+            customPos.set(nid, { x: orig.x + ddx, y: orig.y + ddy });
+          }
+        } else {
+          // Move single node
+          const orig = origPositions.get(node.id);
+          customPos.set(node.id, { x: orig.x + ddx, y: orig.y + ddy });
+        }
+
+        // Detect drop target (only for single node drag without selection)
+        dropTargetId = null;
+        if (!selectedNodes.has(node.id) || selectedNodes.size <= 1) {
+          const svgMX = (ev.clientX - window.innerWidth / 2 - viewX) / scale;
+          const svgMY = (ev.clientY - window.innerHeight / 2 - viewY) / scale;
+          let bestDist = 40;
+          for (const box of lastNodeBoxes) {
+            if (box.id === node.id) continue;
+            if (box.id === DATA.id) continue;
+            const target = nodeMap.get(box.id);
+            if (!target) continue;
+            if (isDescendantOf(node, target)) continue;
+            const dx2 = Math.max(0, Math.abs(svgMX - box.x) - box.w / 2);
+            const dy2 = Math.max(0, Math.abs(svgMY - box.y) - box.h / 2);
+            const dist = Math.hypot(dx2, dy2);
+            if (dist < bestDist) { bestDist = dist; dropTargetId = box.id; }
+          }
+        }
+        render(); updateTransform();
+      }
+
+      function onUp() {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        if (!dragged) {
+          if (isShift) {
+            // Toggle selection
+            if (selectedNodes.has(node.id)) selectedNodes.delete(node.id);
+            else selectedNodes.add(node.id);
+            render();
+          } else {
+            selectedNodes.clear();
+            startEdit(node, g, w, h, fontSize);
+          }
+        } else if (dropTargetId !== null) {
+          const target = nodeMap.get(dropTargetId);
+          if (target) reparentNode(node, target);
+          dropTargetId = null;
+          render(); updateTransform();
+        }
+        dropTargetId = null;
+      }
+
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+
+    nodesGroup.appendChild(g);
+  });
+
+  saveState();
+}
+
+function countDescendants(node) {
+  if (!node.children) return 0;
+  let count = node.children.length;
+  node.children.forEach(c => count += countDescendants(c));
+  return count;
+}
+
+function adjustColor(hex, amount) {
+  const r = Math.min(255, parseInt(hex.slice(1, 3), 16) + amount);
+  const g = Math.min(255, parseInt(hex.slice(3, 5), 16) + amount);
+  const b = Math.min(255, parseInt(hex.slice(5, 7), 16) + amount);
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
+
+// Inline Edit
+function startEdit(node, g, w, h, fontSize) {
+  const bbox = g.getBoundingClientRect();
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'edit-input';
+  input.value = node.text;
+  input.style.left = (bbox.left + bbox.width / 2 - w * scale / 2) + 'px';
+  input.style.top = (bbox.top + bbox.height / 2 - h * scale / 2) + 'px';
+  input.style.width = (w * scale) + 'px';
+  input.style.height = (h * scale) + 'px';
+  input.style.fontSize = (fontSize * scale) + 'px';
+  document.body.appendChild(input);
+  input.focus();
+  input.select();
+
+  function commit() {
+    const val = input.value.trim();
+    if (val && val !== node.text) {
+      node.text = val;
+      render();
+    }
+    if (input.parentNode) input.remove();
+  }
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { input.remove(); }
+  });
+  input.addEventListener('blur', commit);
+}
+
+// Context Menu
+const ctxMenu = document.getElementById('ctx-menu');
+const ctxToggle = document.getElementById('ctx-toggle');
+let ctxNode = null, ctxG = null, ctxW = 0, ctxH = 0, ctxFontSize = 0;
+
+function showContextMenu(mx, my, node, g, w, h, fontSize) {
+  ctxNode = node; ctxG = g; ctxW = w; ctxH = h; ctxFontSize = fontSize;
+  const hasChildren = node.children && node.children.length > 0;
+  const isCollapsed = collapsed.has(node.id);
+  ctxToggle.textContent = !hasChildren ? '(子ノードなし)' : isCollapsed ? '展開する' : '折りたたむ';
+  ctxToggle.style.opacity = hasChildren ? '1' : '0.4';
+  ctxToggle.style.pointerEvents = hasChildren ? 'auto' : 'none';
+  const delItem = ctxMenu.querySelector('[data-action="delete"]');
+  delItem.style.display = node.id === DATA.id ? 'none' : '';
+  const delSelItem = document.getElementById('ctx-del-sel');
+  const selCount = selectedNodes.size;
+  delSelItem.style.display = selCount >= 2 ? '' : 'none';
+  if (selCount >= 2) delSelItem.textContent = `選択した ${selCount} ノードを削除`;
+  ctxMenu.style.left = mx + 'px';
+  ctxMenu.style.top = my + 'px';
+  ctxMenu.classList.add('show');
+}
+
+function hideContextMenu() { ctxMenu.classList.remove('show'); ctxNode = null; }
+
+document.addEventListener('click', hideContextMenu);
+document.addEventListener('contextmenu', (e) => {
+  if (!e.target.closest('.node-group')) { hideContextMenu(); }
+});
+
+ctxMenu.addEventListener('click', (e) => {
+  const action = e.target.closest('.ctx-item')?.dataset.action;
+  if (!action || !ctxNode) return;
+  e.stopPropagation();
+  if (action === 'add') {
+    const newNode = addChildNode(ctxNode);
+    pendingEditNodeId = newNode.id;
+    render(); updateTransform();
+  } else if (action === 'toggle') {
+    if (ctxNode.children && ctxNode.children.length > 0) {
+      if (collapsed.has(ctxNode.id)) collapsed.delete(ctxNode.id);
+      else collapsed.add(ctxNode.id);
+      render();
+    }
+  } else if (action === 'delete') {
+    if (ctxNode.id === DATA.id) return;
+    const parent = findParent(ctxNode, DATA);
+    if (parent) {
+      parent.children = parent.children.filter(c => c.id !== ctxNode.id);
+      customPos.delete(ctxNode.id); customWidth.delete(ctxNode.id);
+      anchorOverrides.delete(`${parent.id}-${ctxNode.id}`);
+      selectedNodes.delete(ctxNode.id);
+      render(); updateTransform();
+    }
+  } else if (action === 'delete-selected') {
+    for (const nid of [...selectedNodes]) {
+      if (nid === DATA.id) continue;
+      const n = nodeMap.get(nid);
+      if (!n) continue;
+      const p = findParent(n, DATA);
+      if (p) {
+        p.children = p.children.filter(c => c.id !== nid);
+        customPos.delete(nid); customWidth.delete(nid);
+        anchorOverrides.delete(`${p.id}-${nid}`);
+      }
+    }
+    selectedNodes.clear();
+    render(); updateTransform();
+  }
+  hideContextMenu();
+});
+
+// Pan & Zoom
+const container = document.getElementById('container');
+const viewport = document.getElementById('viewport');
+let viewX = 0, viewY = 0, scale = 1;
+let isPanning = false, panStartX = 0, panStartY = 0;
+
+function updateTransform() {
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  viewport.setAttribute('transform', `translate(${cx + viewX},${cy + viewY}) scale(${scale})`);
+  saveState();
+}
+
+container.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// Rubber band / Pan
+const selectBox = document.getElementById('select-box');
+let isSelecting = false, selStartX = 0, selStartY = 0;
+
+container.addEventListener('mousedown', (e) => {
+  if (e.target.closest('.node-group') || e.target.closest('.anchor-dot')) return;
+  hideContextMenu();
+
+  if (e.shiftKey) {
+    // Shift+drag = rubber band selection
+    isSelecting = true;
+    selStartX = e.clientX; selStartY = e.clientY;
+    selectBox.setAttribute('visibility', 'visible');
+  } else {
+    // Normal drag = pan
+    selectedNodes.clear(); render();
+    isPanning = true;
+    panStartX = e.clientX - viewX;
+    panStartY = e.clientY - viewY;
+    container.classList.add('grabbing');
+  }
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (isPanning) {
+    viewX = e.clientX - panStartX;
+    viewY = e.clientY - panStartY;
+    updateTransform();
+  } else if (isSelecting) {
+    const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+    const x1 = (selStartX - cx - viewX) / scale;
+    const y1 = (selStartY - cy - viewY) / scale;
+    const x2 = (e.clientX - cx - viewX) / scale;
+    const y2 = (e.clientY - cy - viewY) / scale;
+    const rx = Math.min(x1, x2), ry = Math.min(y1, y2);
+    const rw = Math.abs(x2 - x1), rh = Math.abs(y2 - y1);
+    selectBox.setAttribute('x', rx);
+    selectBox.setAttribute('y', ry);
+    selectBox.setAttribute('width', rw);
+    selectBox.setAttribute('height', rh);
+
+    // Live-select nodes inside box
+    selectedNodes.clear();
+    for (const box of lastNodeBoxes) {
+      if (box.x >= rx && box.x <= rx + rw && box.y >= ry && box.y <= ry + rh) {
+        selectedNodes.add(box.id);
+      }
+    }
+    render(); updateTransform();
+    selectBox.setAttribute('visibility', 'visible');
+  }
+});
+
+window.addEventListener('mouseup', () => {
+  if (isSelecting) {
+    isSelecting = false;
+    selectBox.setAttribute('visibility', 'hidden');
+    selectBox.setAttribute('width', 0); selectBox.setAttribute('height', 0);
+    render();
+  }
+  isPanning = false;
+  container.classList.remove('grabbing');
+});
+
+container.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? 0.95 : 1.05;
+  const newScale = Math.min(3, Math.max(0.2, scale * delta));
+  // Zoom toward cursor
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  const mx = e.clientX - cx - viewX;
+  const my = e.clientY - cy - viewY;
+  viewX -= mx * (newScale / scale - 1);
+  viewY -= my * (newScale / scale - 1);
+  scale = newScale;
+  updateTransform();
+}, { passive: false });
+
+// Touch support
+let lastTouchDist = 0;
+let lastTouchX = 0, lastTouchY = 0;
+
+container.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 1) {
+    isPanning = true;
+    panStartX = e.touches[0].clientX - viewX;
+    panStartY = e.touches[0].clientY - viewY;
+  } else if (e.touches.length === 2) {
+    isPanning = false;
+    lastTouchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    lastTouchX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    lastTouchY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+  }
+}, { passive: true });
+
+container.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (e.touches.length === 1 && isPanning) {
+    viewX = e.touches[0].clientX - panStartX;
+    viewY = e.touches[0].clientY - panStartY;
+    updateTransform();
+  } else if (e.touches.length === 2) {
+    const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    const delta = dist / lastTouchDist;
+    scale = Math.min(3, Math.max(0.2, scale * delta));
+    lastTouchDist = dist;
+    updateTransform();
+  }
+}, { passive: false });
+
+container.addEventListener('touchend', () => { isPanning = false; });
+
+// Controls
+document.getElementById('zoomIn').addEventListener('click', () => {
+  scale = Math.min(3, scale * 1.2);
+  updateTransform();
+});
+document.getElementById('zoomOut').addEventListener('click', () => {
+  scale = Math.max(0.2, scale * 0.8);
+  updateTransform();
+});
+document.getElementById('resetView').addEventListener('click', () => {
+  resetAll();
+  render();
+  updateTransform();
+});
+
+// Resize
+window.addEventListener('resize', updateTransform);
+
+// Init
+render();
+updateTransform();
+</script>
+</body>
+</html>
