@@ -134,6 +134,7 @@ let dropTargetId = null;
 let lastNodeBoxes = [];
 let pendingEditNodeId = null;
 const selectedNodes = new Set();
+let viewX = 0, viewY = 0, scale = 1;
 
 // Assign IDs
 function assignIds(node) {
@@ -1153,7 +1154,6 @@ ctxMenu.addEventListener('click', (e) => {
 // Pan & Zoom
 const container = document.getElementById('container');
 const viewport = document.getElementById('viewport');
-let viewX = 0, viewY = 0, scale = 1;
 let isPanning = false, panStartX = 0, panStartY = 0;
 
 function updateTransform() {
