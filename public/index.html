@@ -447,54 +447,109 @@ function autoFormat() {
 }
 
 function autoFormatFrom(root, startDepth, startX, startY) {
-  const H_GAP = 20;
-  const V_GAP = 20;
+  const GAP = 20;
   const NODE_H = 38;
   const ROOT_H = 56;
 
-  // Step 1: Collect max natural width per relative depth
-  const maxW = {};
-  function collectWidths(node, rel) {
-    const d = startDepth + rel;
-    const w = defaultNodeWidth(node, d);
-    if (!maxW[rel] || w > maxW[rel]) maxW[rel] = w;
-    if (!collapsed.has(node.id) && node.children && node.children.length) {
-      node.children.forEach(c => collectWidths(c, rel + 1));
+  // Detect if children are laid out horizontally or vertically
+  function detectDir(node) {
+    if (!node.children || node.children.length < 1) return 'h';
+    const px = node._x || 0, py = node._y || 0;
+    let sumDx = 0, sumDy = 0;
+    for (const c of node.children) {
+      sumDx += Math.abs((c._x || 0) - px);
+      sumDy += Math.abs((c._y || 0) - py);
+    }
+    return sumDy > sumDx ? 'v' : 'h';
+  }
+
+  // Collect max width per group of siblings sharing same direction & depth
+  function getNodeH(node, depth) { return depth === 0 ? ROOT_H : NODE_H; }
+
+  // Compute subtree size along the stacking axis
+  function subtreeSize(node, depth, dir) {
+    const nw = defaultNodeWidth(node, depth);
+    const nh = getNodeH(node, depth);
+    const primary = dir === 'h' ? nh : nw; // size along stacking axis
+    if (collapsed.has(node.id) || !node.children || !node.children.length) return primary;
+    const childDir = detectDir(node);
+    if (childDir === dir) {
+      // Children stack along same axis — sum them
+      let total = 0;
+      for (const c of node.children) total += subtreeSize(c, depth + 1, childDir);
+      total += (node.children.length - 1) * GAP;
+      return Math.max(primary, total);
+    } else {
+      // Children go perpendicular — max of them
+      let maxS = 0;
+      for (const c of node.children) maxS = Math.max(maxS, subtreeSize(c, depth + 1, childDir));
+      return Math.max(primary, maxS);
     }
   }
-  collectWidths(root, 0);
 
-  // Step 2: Compute subtree heights
-  function subtreeH(node, rel) {
-    const h = (startDepth + rel === 0) ? ROOT_H : NODE_H;
-    if (collapsed.has(node.id) || !node.children || !node.children.length) return h;
-    let total = node.children.reduce((s, c) => s + subtreeH(c, rel + 1), 0);
-    total += (node.children.length - 1) * V_GAP;
-    return Math.max(h, total);
+  // Equalize widths among siblings
+  function equalizeSiblingWidths(node, depth) {
+    if (collapsed.has(node.id) || !node.children || !node.children.length) return;
+    let maxW = 0;
+    for (const c of node.children) {
+      maxW = Math.max(maxW, defaultNodeWidth(c, depth + 1));
+    }
+    for (const c of node.children) {
+      customWidth.set(c.id, maxW);
+    }
+    for (const c of node.children) equalizeSiblingWidths(c, depth + 1);
   }
 
-  // Step 3: Recursive layout
-  function layout(node, rel, x, yCenter) {
-    const w = maxW[rel];
-    customWidth.set(node.id, w);
-    customPos.set(node.id, { x, y: yCenter });
+  // Recursive layout
+  function layout(node, depth, x, y) {
+    customPos.set(node.id, { x, y });
+    if (!customWidth.has(node.id)) {
+      customWidth.set(node.id, defaultNodeWidth(node, depth));
+    }
 
     if (collapsed.has(node.id) || !node.children || !node.children.length) return;
 
-    const nextW = maxW[rel + 1] || 100;
-    const nextX = x + w / 2 + H_GAP + nextW / 2;
+    const dir = detectDir(node);
+    const nw = customWidth.get(node.id) || defaultNodeWidth(node, depth);
+    const nh = getNodeH(node, depth);
 
-    const childH = node.children.map(c => subtreeH(c, rel + 1));
-    const totalH = childH.reduce((a, b) => a + b, 0) + (node.children.length - 1) * V_GAP;
-
-    let curY = yCenter - totalH / 2;
-    for (let i = 0; i < node.children.length; i++) {
-      layout(node.children[i], rel + 1, nextX, curY + childH[i] / 2);
-      curY += childH[i] + V_GAP;
+    if (dir === 'h') {
+      // Children go to the right, stacked vertically
+      let maxChildW = 0;
+      for (const c of node.children) {
+        maxChildW = Math.max(maxChildW, customWidth.get(c.id) || defaultNodeWidth(c, depth + 1));
+      }
+      const nextX = x + nw / 2 + GAP + maxChildW / 2;
+      const childSizes = node.children.map(c => subtreeSize(c, depth + 1, 'v'));
+      const totalH = childSizes.reduce((a, b) => a + b, 0) + (node.children.length - 1) * GAP;
+      let curY = y - totalH / 2;
+      for (let i = 0; i < node.children.length; i++) {
+        const cs = childSizes[i];
+        layout(node.children[i], depth + 1, nextX, curY + cs / 2);
+        curY += cs + GAP;
+      }
+    } else {
+      // Children go downward, stacked vertically
+      let maxChildW = 0;
+      for (const c of node.children) {
+        maxChildW = Math.max(maxChildW, customWidth.get(c.id) || defaultNodeWidth(c, depth + 1));
+      }
+      const nextX = x; // same X column
+      const childH = NODE_H;
+      const totalH = node.children.length * childH + (node.children.length - 1) * GAP;
+      let curY = y + nh / 2 + GAP + childH / 2;
+      for (let i = 0; i < node.children.length; i++) {
+        layout(node.children[i], depth + 1, nextX, curY);
+        curY += childH + GAP;
+      }
     }
   }
 
-  layout(root, 0, startX, startY);
+  equalizeSiblingWidths(root, startDepth);
+  if (!customWidth.has(root.id)) {
+    customWidth.set(root.id, defaultNodeWidth(root, startDepth));
+  }
+  layout(root, startDepth, startX, startY);
 }
 
 // Auto-format subtree only (keep root position, format children)
