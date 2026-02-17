@@ -289,6 +289,11 @@ function resetAll() {
   localStorage.removeItem('mindmap');
 }
 
+// Init: ?reset parameter clears corrupted state
+if (new URLSearchParams(window.location.search).has('reset')) {
+  localStorage.removeItem('mindmap');
+  window.history.replaceState({}, '', window.location.pathname);
+}
 // Init: load saved state or assign fresh IDs
 if (!loadState()) { assignIds(DATA); }
 
@@ -614,13 +619,17 @@ const nodesGroup = document.getElementById('nodes');
 // Resolve node overlaps after layout
 function resolveOverlaps(items) {
   const gap = 18;
+  const movedNodes = new Set();
   for (let iter = 0; iter < 20; iter++) {
     let moved = false;
     for (let i = 0; i < items.length; i++) {
-      if (items[i].depth === 0) continue; // don't push root
+      if (items[i].depth === 0) continue;
       for (let j = i + 1; j < items.length; j++) {
         if (items[j].depth === 0) continue;
         const a = items[i], b = items[j];
+        const aFixed = customPos.has(a.node.id);
+        const bFixed = customPos.has(b.node.id);
+        if (aFixed && bFixed) continue; // both user-positioned, never touch
         const aw = nodeWidth(a.node, a.depth);
         const ah = a.depth === 0 ? 56 : 38;
         const bw = nodeWidth(b.node, b.depth);
@@ -631,10 +640,6 @@ function resolveOverlaps(items) {
         const oy = (ah + bh) / 2 + gap - Math.abs(dy);
         if (ox > 0 && oy > 0) {
           moved = true;
-          // Push along axis with less overlap
-          const aFixed = customPos.has(a.node.id);
-          const bFixed = customPos.has(b.node.id);
-          if (aFixed && bFixed) continue; // both positioned by auto-format, skip
           let ra = 0.5, rb = 0.5;
           if (aFixed && !bFixed) { ra = 0; rb = 1; }
           else if (bFixed && !aFixed) { ra = 1; rb = 0; }
@@ -649,12 +654,20 @@ function resolveOverlaps(items) {
           }
           a.node._x = a.x; b.node._x = b.x;
           a.node._y = a.y; b.node._y = b.y;
+          if (ra > 0) movedNodes.add(a.node.id);
+          if (rb > 0) movedNodes.add(b.node.id);
         }
       }
     }
     if (!moved) break;
   }
-  // Update parent references after positions changed
+  // Save only nodes that were moved by overlap resolution (stabilize on reload)
+  for (const it of items) {
+    if (movedNodes.has(it.node.id)) {
+      customPos.set(it.node.id, { x: it.x, y: it.y });
+    }
+  }
+  // Update parent references
   const posMap = new Map(items.map(it => [it.node.id, { x: it.x, y: it.y }]));
   for (const item of items) {
     if (item.parentNode) {
@@ -667,10 +680,6 @@ function resolveOverlaps(items) {
 function render() {
   const items = computeLayout(DATA, 0, -Math.PI, Math.PI, 0, 0);
   resolveOverlaps(items);
-  // Persist final positions so they are stable on reload
-  for (const it of items) {
-    customPos.set(it.node.id, { x: it.x, y: it.y });
-  }
   linesGroup.innerHTML = '';
   anchorsGroup.innerHTML = '';
   nodesGroup.innerHTML = '';
