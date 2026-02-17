@@ -452,13 +452,15 @@ function autoFormatFrom(root, startDepth, startX, startY) {
   const ROOT_H = 56;
 
   // Detect if children are laid out horizontally or vertically
+  // by checking how consecutive siblings are arranged relative to each other
   function detectDir(node) {
-    if (!node.children || node.children.length < 1) return 'h';
-    const px = node._x || 0, py = node._y || 0;
+    if (!node.children || node.children.length < 2) return 'h';
     let sumDx = 0, sumDy = 0;
-    for (const c of node.children) {
-      sumDx += Math.abs((c._x || 0) - px);
-      sumDy += Math.abs((c._y || 0) - py);
+    for (let i = 1; i < node.children.length; i++) {
+      const prev = node.children[i - 1];
+      const curr = node.children[i];
+      sumDx += Math.abs((curr._x || 0) - (prev._x || 0));
+      sumDy += Math.abs((curr._y || 0) - (prev._y || 0));
     }
     return sumDy > sumDx ? 'v' : 'h';
   }
