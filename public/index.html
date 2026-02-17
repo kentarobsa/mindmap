@@ -54,6 +54,10 @@ svg { width: 100%; height: 100%; }
 .free-arrow-handle:hover { filter: brightness(1.3); }
 .arrow-ctx-menu { position: fixed; display: none; background: rgba(20,20,45,0.96); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 6px 0; z-index: 200; min-width: 170px; backdrop-filter: blur(12px); box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
 .arrow-ctx-menu.show { display: block; }
+.ctx-width-grid { display: flex; align-items: center; gap: 8px; padding: 6px 18px 8px; }
+.width-opt { cursor: pointer; border: 2px solid transparent; border-radius: 6px; padding: 4px 8px; transition: border-color 0.15s; display: flex; align-items: center; }
+.width-opt:hover { border-color: rgba(255,255,255,0.5); }
+.width-opt.active { border-color: #fff; }
 </style>
 </head>
 <body>
@@ -74,6 +78,8 @@ svg { width: 100%; height: 100%; }
   <div class="ctx-item" data-action="delete-selected" id="ctx-del-sel" style="color:#e55;">選択ノードを削除</div>
 </div>
 <div id="arrow-ctx-menu" class="arrow-ctx-menu">
+  <div class="ctx-color-label">線の太さ</div>
+  <div class="ctx-width-grid" id="arrow-ctx-widths"></div>
   <div class="ctx-color-label">矢印の色</div>
   <div class="ctx-color-grid" id="arrow-ctx-colors"></div>
   <div class="ctx-sep"></div>
@@ -741,7 +747,8 @@ function renderFreeArrows() {
     path.setAttribute('d', d);
     path.setAttribute('class', 'free-arrow-path');
     path.setAttribute('stroke', color);
-    path.setAttribute('stroke-width', selectedArrowId === id ? '3.5' : '2.5');
+    const sw = arrow.strokeWidth || 4;
+    path.setAttribute('stroke-width', selectedArrowId === id ? sw + 1 : sw);
     path.setAttribute('marker-end', markerUrl);
     if (selectedArrowId === id) {
       path.setAttribute('stroke-dasharray', '8 4');
@@ -1445,6 +1452,7 @@ container.addEventListener('mousedown', (e) => {
       x2: startX, y2: startY,
       cx: startX, cy: startY,
       color: arrowDrawColor,
+      strokeWidth: 4,
     };
     freeArrows.push(newArrow);
     selectedArrowId = newArrow.id;
@@ -1621,6 +1629,33 @@ let arrowCtxTarget = null;
 
 function showArrowContextMenu(mx, my, arrow) {
   arrowCtxTarget = arrow;
+  // Width options
+  const widthsEl = document.getElementById('arrow-ctx-widths');
+  widthsEl.innerHTML = '';
+  const WIDTHS = [2, 4, 6, 8, 12];
+  WIDTHS.forEach(w => {
+    const opt = document.createElement('span');
+    opt.className = 'width-opt' + ((arrow.strokeWidth || 4) === w ? ' active' : '');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '30'); svg.setAttribute('height', '16');
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', '2'); line.setAttribute('y1', '8');
+    line.setAttribute('x2', '28'); line.setAttribute('y2', '8');
+    line.setAttribute('stroke', '#fff'); line.setAttribute('stroke-width', w);
+    line.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(line);
+    opt.appendChild(svg);
+    opt.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      pushUndo();
+      arrow.strokeWidth = w;
+      renderFreeArrows(); saveState();
+      // Update active state
+      widthsEl.querySelectorAll('.width-opt').forEach(el => el.classList.remove('active'));
+      opt.classList.add('active');
+    });
+    widthsEl.appendChild(opt);
+  });
   const colorsEl = document.getElementById('arrow-ctx-colors');
   colorsEl.innerHTML = '';
   PALETTE.forEach(c => {
