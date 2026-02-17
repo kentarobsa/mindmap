@@ -633,13 +633,10 @@ function alignSelectedLeft() {
   }
   const centerX = minLeftEdge + maxW / 2;
 
-  // Stack vertically starting from the topmost node's Y position
-  let curY = targets[0].y;
+  // Only change X to align left edges; keep original Y positions
   for (const t of targets) {
-    customPos.set(t.id, { x: centerX, y: curY });
+    customPos.set(t.id, { x: centerX, y: t.y });
     t.node._x = centerX;
-    t.node._y = curY;
-    curY += nodeH + GAP;
   }
 
   render();
