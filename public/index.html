@@ -667,6 +667,10 @@ function resolveOverlaps(items) {
 function render() {
   const items = computeLayout(DATA, 0, -Math.PI, Math.PI, 0, 0);
   resolveOverlaps(items);
+  // Persist final positions so they are stable on reload
+  for (const it of items) {
+    customPos.set(it.node.id, { x: it.x, y: it.y });
+  }
   linesGroup.innerHTML = '';
   anchorsGroup.innerHTML = '';
   nodesGroup.innerHTML = '';
@@ -887,8 +891,9 @@ function render() {
       showContextMenu(e.clientX, e.clientY, node, g, w, h, fontSize);
     });
 
-    // Drag to move / Click to edit / Shift+Click to select
+    // Drag to move / Click to edit / Shift+Click to select (left button only)
     g.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return; // ignore right-click
       e.stopPropagation();
       e.preventDefault();
       const isShift = e.shiftKey;
