@@ -1,4 +1,4 @@
-const PASSWORD = process.env.SITE_PASSWORD || 'admin';
+const PASSWORD = process.env.SITE_PASSWORD || '123456';
 
 const LOGIN_HTML = `<!DOCTYPE html>
 <html lang="ja"><head>

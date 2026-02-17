@@ -1,4 +1,4 @@
-const PASSWORD = process.env.SITE_PASSWORD || 'admin';
+const PASSWORD = process.env.SITE_PASSWORD || '123456';
 
 export default function handler(req, res) {
   if (req.method !== 'POST') {
