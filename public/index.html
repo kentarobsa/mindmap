@@ -596,6 +596,17 @@ function alignSelectedLeft() {
   const GAP = 20;
   const nodeH = 38;
 
+  // Lock ALL non-selected node positions into customPos
+  // so resolveOverlaps treats them as fixed and never moves them
+  const savedPositions = new Map();
+  nodeMap.forEach((n, id) => {
+    if (!selectedNodes.has(id) && n._x !== undefined && n._y !== undefined) {
+      const pos = { x: n._x, y: n._y };
+      customPos.set(id, pos);
+      savedPositions.set(id, pos);
+    }
+  });
+
   // Collect selected nodes with their current positions
   const targets = [];
   for (const nid of selectedNodes) {
@@ -632,6 +643,21 @@ function alignSelectedLeft() {
   }
 
   render();
+
+  // Force restore non-selected node positions after render
+  // (in case resolveOverlaps still moved them)
+  let needRerender = false;
+  for (const [id, pos] of savedPositions) {
+    const n = nodeMap.get(id);
+    if (n && (Math.abs(n._x - pos.x) > 0.1 || Math.abs(n._y - pos.y) > 0.1)) {
+      customPos.set(id, pos);
+      n._x = pos.x;
+      n._y = pos.y;
+      needRerender = true;
+    }
+  }
+  if (needRerender) render();
+
   updateTransform();
 }
 
