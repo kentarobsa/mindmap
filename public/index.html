@@ -588,85 +588,51 @@ function autoFormatSubtree(parentNode) {
   updateTransform();
 }
 
-// Align children in a vertical column, left-aligned
-function alignChildrenLeft(parentNode) {
-  if (!parentNode.children || parentNode.children.length === 0) return;
+// Align selected nodes in a vertical column, left-aligned
+// Only moves selected nodes; all others stay in place
+function alignSelectedLeft() {
+  if (selectedNodes.size < 2) return;
   pushUndo();
   const GAP = 20;
-  const depth = getNodeDepth(parentNode);
-  const px = parentNode._x || 0;
-  const py = parentNode._y || 0;
-  const pH = depth === 0 ? 56 : 38;
-  const pW = nodeWidth(parentNode, depth);
+  const nodeH = 38;
 
-  // Equalize child widths
-  let maxChildW = 0;
-  for (const c of parentNode.children) {
-    const cw = customWidth.has(c.id) ? customWidth.get(c.id) : defaultNodeWidth(c, depth + 1);
-    if (cw > maxChildW) maxChildW = cw;
-  }
-  for (const c of parentNode.children) {
-    customWidth.set(c.id, maxChildW);
+  // Collect selected nodes with their current positions
+  const targets = [];
+  for (const nid of selectedNodes) {
+    const n = nodeMap.get(nid);
+    if (!n) continue;
+    const d = getNodeDepth(n);
+    const w = customWidth.has(nid) ? customWidth.get(nid) : nodeWidth(n, d);
+    targets.push({ node: n, id: nid, x: n._x || 0, y: n._y || 0, w, depth: d });
   }
 
-  // Left edge of children = right edge of parent + gap
-  const childLeftEdge = px + pW / 2 + GAP;
-  const childCenterX = childLeftEdge + maxChildW / 2;
+  // Sort by current Y position (top to bottom)
+  targets.sort((a, b) => a.y - b.y);
 
-  // Stack children vertically, evenly spaced
-  const childH = 38;
-  const totalH = parentNode.children.length * childH + (parentNode.children.length - 1) * GAP;
-  let curY = py - totalH / 2 + childH / 2;
+  // Equalize widths
+  let maxW = 0;
+  for (const t of targets) maxW = Math.max(maxW, t.w);
+  for (const t of targets) customWidth.set(t.id, maxW);
 
-  for (const c of parentNode.children) {
-    customPos.set(c.id, { x: childCenterX, y: curY });
-    curY += childH + GAP;
+  // Find the leftmost left-edge as the alignment reference
+  let minLeftEdge = Infinity;
+  for (const t of targets) {
+    const leftEdge = t.x - t.w / 2;
+    if (leftEdge < minLeftEdge) minLeftEdge = leftEdge;
+  }
+  const centerX = minLeftEdge + maxW / 2;
 
-    // Recursively align grandchildren too
-    if (c.children && c.children.length > 0) {
-      // Temporarily set position for recursive call
-      c._x = childCenterX;
-      c._y = customPos.get(c.id).y;
-      alignDescendantsLeft(c, depth + 1, GAP);
-    }
+  // Stack vertically starting from the topmost node's Y position
+  let curY = targets[0].y;
+  for (const t of targets) {
+    customPos.set(t.id, { x: centerX, y: curY });
+    t.node._x = centerX;
+    t.node._y = curY;
+    curY += nodeH + GAP;
   }
 
   render();
   updateTransform();
-}
-
-// Recursively left-align descendants
-function alignDescendantsLeft(node, depth, GAP) {
-  if (!node.children || node.children.length === 0) return;
-  if (collapsed.has(node.id)) return;
-
-  const nW = customWidth.has(node.id) ? customWidth.get(node.id) : nodeWidth(node, depth);
-  const nx = node._x || 0;
-  const ny = node._y || 0;
-
-  // Equalize widths among siblings
-  let maxChildW = 0;
-  for (const c of node.children) {
-    const cw = customWidth.has(c.id) ? customWidth.get(c.id) : defaultNodeWidth(c, depth + 1);
-    if (cw > maxChildW) maxChildW = cw;
-  }
-  for (const c of node.children) {
-    customWidth.set(c.id, maxChildW);
-  }
-
-  const childLeftEdge = nx + nW / 2 + GAP;
-  const childCenterX = childLeftEdge + maxChildW / 2;
-  const childH = 38;
-  const totalH = node.children.length * childH + (node.children.length - 1) * GAP;
-  let curY = ny - totalH / 2 + childH / 2;
-
-  for (const c of node.children) {
-    customPos.set(c.id, { x: childCenterX, y: curY });
-    c._x = childCenterX;
-    c._y = curY;
-    curY += childH + GAP;
-    alignDescendantsLeft(c, depth + 1, GAP);
-  }
 }
 
 // Anchor utilities
@@ -1269,7 +1235,7 @@ function showContextMenu(mx, my, node, g, w, h, fontSize) {
   const alignItem = ctxMenu.querySelector('[data-action="align"]');
   alignItem.style.display = hasChildren ? '' : 'none';
   const alignLeftItem = ctxMenu.querySelector('[data-action="align-left"]');
-  alignLeftItem.style.display = hasChildren ? '' : 'none';
+  alignLeftItem.style.display = selectedNodes.size >= 2 ? '' : 'none';
   // Color palette
   const colorsEl = document.getElementById('ctx-colors');
   colorsEl.innerHTML = '';
@@ -1326,7 +1292,7 @@ ctxMenu.addEventListener('click', (e) => {
   } else if (action === 'align') {
     autoFormatSubtree(ctxNode);
   } else if (action === 'align-left') {
-    alignChildrenLeft(ctxNode);
+    alignSelectedLeft();
   } else if (action === 'toggle') {
     if (ctxNode.children && ctxNode.children.length > 0) {
       if (collapsed.has(ctxNode.id)) collapsed.delete(ctxNode.id);
