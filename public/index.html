@@ -58,6 +58,8 @@ svg { width: 100%; height: 100%; }
   <div class="ctx-sep"></div>
   <div class="ctx-item" data-action="toggle" id="ctx-toggle">折りたたむ</div>
   <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="equalize-width" id="ctx-eq-w">↔ 幅を揃える</div>
+  <div class="ctx-sep"></div>
   <div class="ctx-item" data-action="delete" style="color:#e55;">削除</div>
   <div class="ctx-item" data-action="delete-selected" id="ctx-del-sel" style="color:#e55;">選択ノードを削除</div>
 </div>
@@ -1070,6 +1072,9 @@ function showContextMenu(mx, my, node, g, w, h, fontSize) {
   delItem.style.display = node.id === DATA.id ? 'none' : '';
   const delSelItem = document.getElementById('ctx-del-sel');
   const selCount = selectedNodes.size;
+  const eqWItem = document.getElementById('ctx-eq-w');
+  eqWItem.style.display = selCount >= 2 ? '' : 'none';
+  if (selCount >= 2) eqWItem.textContent = `↔ 選択 ${selCount} ノードの幅を揃える`;
   delSelItem.style.display = selCount >= 2 ? '' : 'none';
   if (selCount >= 2) delSelItem.textContent = `選択した ${selCount} ノードを削除`;
   ctxMenu.style.left = mx + 'px';
@@ -1112,6 +1117,22 @@ ctxMenu.addEventListener('click', (e) => {
       customPos.delete(ctxNode.id); customWidth.delete(ctxNode.id);
       anchorOverrides.delete(`${parent.id}-${ctxNode.id}`);
       selectedNodes.delete(ctxNode.id);
+      render(); updateTransform();
+    }
+  } else if (action === 'equalize-width') {
+    if (selectedNodes.size >= 2) {
+      pushUndo();
+      let maxW = 0;
+      for (const nid of selectedNodes) {
+        const n = nodeMap.get(nid);
+        if (!n) continue;
+        const d = getNodeDepth(n);
+        const w = customWidth.has(nid) ? customWidth.get(nid) : defaultNodeWidth(n, d);
+        if (w > maxW) maxW = w;
+      }
+      for (const nid of selectedNodes) {
+        customWidth.set(nid, maxW);
+      }
       render(); updateTransform();
     }
   } else if (action === 'delete-selected') {
