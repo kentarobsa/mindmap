@@ -66,8 +66,10 @@ svg { width: 100%; height: 100%; }
   <div class="ctx-item" data-action="add">+ 子ノードを追加</div>
   <div class="ctx-item" data-action="align">⊞ 子ノードを整列</div>
   <div class="ctx-item" data-action="align-left">↕ 縦列を左揃え</div>
-  <div class="ctx-color-label">色を変更</div>
-  <div class="ctx-color-grid" id="ctx-colors"></div>
+  <div class="ctx-color-label">このノードの色</div>
+  <div class="ctx-color-grid" id="ctx-colors-single"></div>
+  <div class="ctx-color-label" id="ctx-color-all-label">子ノードも含めて色変更</div>
+  <div class="ctx-color-grid" id="ctx-colors-all"></div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" data-action="toggle" id="ctx-toggle">折りたたむ</div>
   <div class="ctx-sep"></div>
@@ -1247,7 +1249,13 @@ let ctxNode = null, ctxG = null, ctxW = 0, ctxH = 0, ctxFontSize = 0;
 
 const PALETTE = ['#e94560','#f5a623','#7ed321','#4a90d9','#bd10e0','#e05555','#50e3c2','#ff6b81','#ffc048','#45aaf2'];
 
-function applyColor(node, color) {
+function applyColorSingle(node, color) {
+  pushUndo();
+  node.color = color;
+  render(); updateTransform();
+}
+
+function applyColorAll(node, color) {
   pushUndo();
   function setC(n) { n.color = color; if (n.children) n.children.forEach(setC); }
   setC(node);
@@ -1265,26 +1273,47 @@ function showContextMenu(mx, my, node, g, w, h, fontSize) {
   alignItem.style.display = hasChildren ? '' : 'none';
   const alignLeftItem = ctxMenu.querySelector('[data-action="align-left"]');
   alignLeftItem.style.display = selectedNodes.size >= 2 ? '' : 'none';
-  // Color palette
-  const colorsEl = document.getElementById('ctx-colors');
-  colorsEl.innerHTML = '';
+  // Single node color palette
+  const singleEl = document.getElementById('ctx-colors-single');
+  singleEl.innerHTML = '';
   PALETTE.forEach(c => {
     const dot = document.createElement('span');
     dot.className = 'color-dot' + (c === node.color ? ' active' : '');
     dot.style.background = c;
-    dot.addEventListener('click', (e) => { e.stopPropagation(); applyColor(node, c); hideContextMenu(); });
-    colorsEl.appendChild(dot);
+    dot.addEventListener('click', (e) => { e.stopPropagation(); applyColorSingle(node, c); hideContextMenu(); });
+    singleEl.appendChild(dot);
   });
-  // Custom color picker
-  const custom = document.createElement('span');
-  custom.className = 'color-custom';
-  const inp = document.createElement('input');
-  inp.type = 'color';
-  inp.value = node.color;
-  inp.addEventListener('input', (e) => { e.stopPropagation(); applyColor(node, e.target.value); });
-  inp.addEventListener('change', () => hideContextMenu());
-  custom.appendChild(inp);
-  colorsEl.appendChild(custom);
+  const customS = document.createElement('span');
+  customS.className = 'color-custom';
+  const inpS = document.createElement('input');
+  inpS.type = 'color'; inpS.value = node.color;
+  inpS.addEventListener('input', (e) => { e.stopPropagation(); applyColorSingle(node, e.target.value); });
+  inpS.addEventListener('change', () => hideContextMenu());
+  customS.appendChild(inpS);
+  singleEl.appendChild(customS);
+  // All (with children) color palette - only show if has children
+  const allLabel = document.getElementById('ctx-color-all-label');
+  const allEl = document.getElementById('ctx-colors-all');
+  allLabel.style.display = hasChildren ? '' : 'none';
+  allEl.style.display = hasChildren ? '' : 'none';
+  allEl.innerHTML = '';
+  if (hasChildren) {
+    PALETTE.forEach(c => {
+      const dot = document.createElement('span');
+      dot.className = 'color-dot' + (c === node.color ? ' active' : '');
+      dot.style.background = c;
+      dot.addEventListener('click', (e) => { e.stopPropagation(); applyColorAll(node, c); hideContextMenu(); });
+      allEl.appendChild(dot);
+    });
+    const customA = document.createElement('span');
+    customA.className = 'color-custom';
+    const inpA = document.createElement('input');
+    inpA.type = 'color'; inpA.value = node.color;
+    inpA.addEventListener('input', (e) => { e.stopPropagation(); applyColorAll(node, e.target.value); });
+    inpA.addEventListener('change', () => hideContextMenu());
+    customA.appendChild(inpA);
+    allEl.appendChild(customA);
+  }
 
   const delItem = ctxMenu.querySelector('[data-action="delete"]');
   delItem.style.display = node.id === DATA.id ? 'none' : '';
