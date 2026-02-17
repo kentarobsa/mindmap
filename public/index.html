@@ -531,17 +531,11 @@ function autoFormatFrom(root, startDepth, startX, startY) {
         curY += cs + GAP;
       }
     } else {
-      // Children go downward, stacked vertically
-      let maxChildW = 0;
-      for (const c of node.children) {
-        maxChildW = Math.max(maxChildW, customWidth.get(c.id) || defaultNodeWidth(c, depth + 1));
-      }
-      const nextX = x; // same X column
+      // Children go downward, stacked vertically at same X
       const childH = NODE_H;
-      const totalH = node.children.length * childH + (node.children.length - 1) * GAP;
       let curY = y + nh / 2 + GAP + childH / 2;
       for (let i = 0; i < node.children.length; i++) {
-        layout(node.children[i], depth + 1, nextX, curY);
+        layout(node.children[i], depth + 1, x, curY);
         curY += childH + GAP;
       }
     }
@@ -636,12 +630,12 @@ function resolveOverlaps(items) {
         if (ox > 0 && oy > 0) {
           moved = true;
           // Push along axis with less overlap
-          const aFixed = customPos.has(a.node.id) || customWidth.has(a.node.id);
-          const bFixed = customPos.has(b.node.id) || customWidth.has(b.node.id);
+          const aFixed = customPos.has(a.node.id);
+          const bFixed = customPos.has(b.node.id);
+          if (aFixed && bFixed) continue; // both positioned by auto-format, skip
           let ra = 0.5, rb = 0.5;
           if (aFixed && !bFixed) { ra = 0; rb = 1; }
           else if (bFixed && !aFixed) { ra = 1; rb = 0; }
-          else if (aFixed && bFixed) { ra = 0.5; rb = 0.5; }
           if (ox < oy) {
             const p = ox + 0.5;
             if (dx >= 0) { a.x -= p * ra; b.x += p * rb; }
