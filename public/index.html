@@ -69,7 +69,7 @@ svg { width: 100%; height: 100%; }
 <body>
 
 <div class="top-bar">
-  <div id="pageName" class="top-bar-name" title="クリックで名前変更">プロジェクト計画</div>
+  <div id="pageName" class="top-bar-name" title="クリックで名前変更">SPA</div>
   <div id="newPageBtn" class="top-bar-btn">+ New Page</div>
 </div>
 <div id="ctx-menu" class="ctx-menu">
@@ -124,7 +124,7 @@ svg { width: 100%; height: 100%; }
 
 <script>
 const DATA = {
-  text: 'プロジェクト計画',
+  text: 'SPA',
   color: '#e94560',
   children: [
     {
@@ -323,10 +323,10 @@ if (new URLSearchParams(window.location.search).has('reset')) {
   window.history.replaceState({}, '', window.location.pathname);
 }
 // Migration: force reload from default DATA (v2 = SPA tree)
-if (localStorage.getItem('mindmap_version') !== 'v2') {
+if (localStorage.getItem('mindmap_version') !== 'v3') {
   localStorage.removeItem('mindmap');
   localStorage.removeItem('mindmap_name');
-  localStorage.setItem('mindmap_version', 'v2');
+  localStorage.setItem('mindmap_version', 'v3');
 }
 // Init: load saved state or assign fresh IDs
 const isFirstLoad = !loadState();
@@ -1804,7 +1804,7 @@ window.addEventListener('resize', updateTransform);
 
 // Top bar: page name & new page
 const pageNameEl = document.getElementById('pageName');
-let pageName = localStorage.getItem('mindmap_name') || 'プロジェクト計画';
+let pageName = localStorage.getItem('mindmap_name') || 'SPA';
 pageNameEl.textContent = pageName;
 document.title = pageName;
 
