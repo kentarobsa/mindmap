@@ -1119,15 +1119,7 @@ function render() {
       showContextMenu(e.clientX, e.clientY, node, g, w, h, fontSize);
     });
 
-    // Double-click to edit
-    g.addEventListener('dblclick', (e) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      e.preventDefault();
-      startEdit(node, g, w, h, fontSize);
-    });
-
-    // Drag to move / Click to select (left button only)
+    // Drag to move / Click to edit / Shift+Click to select (left button only)
     g.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return; // ignore right-click
       e.stopPropagation();
@@ -1192,19 +1184,14 @@ function render() {
         window.removeEventListener('mouseup', onUp);
         if (!dragged) {
           if (isShift) {
-            // Shift+Click: toggle selection (add/remove)
+            // Shift+Click: toggle selection
             if (selectedNodes.has(node.id)) selectedNodes.delete(node.id);
             else selectedNodes.add(node.id);
+            render();
           } else {
-            // Click: select this node (clear others)
-            if (selectedNodes.has(node.id) && selectedNodes.size === 1) {
-              selectedNodes.delete(node.id);
-            } else {
-              selectedNodes.clear();
-              selectedNodes.add(node.id);
-            }
+            selectedNodes.clear();
+            startEdit(node, g, w, h, fontSize);
           }
-          render();
         } else if (dropTargetId !== null) {
           const target = nodeMap.get(dropTargetId);
           if (target) reparentNode(node, target);
@@ -1569,14 +1556,13 @@ container.addEventListener('mousedown', (e) => {
     renderFreeArrows();
   }
 
-  if (e.shiftKey) {
-    // Shift+drag = rubber band selection
+  if (e.button === 0) {
+    // Left drag = rubber band selection
     isSelecting = true;
     selStartX = e.clientX; selStartY = e.clientY;
     selectBox.setAttribute('visibility', 'visible');
-  } else {
-    // Normal drag = pan
-    selectedNodes.clear(); render();
+  } else if (e.button === 2) {
+    // Right drag = pan
     isPanning = true;
     panStartX = e.clientX - viewX;
     panStartY = e.clientY - viewY;
