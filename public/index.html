@@ -1119,7 +1119,15 @@ function render() {
       showContextMenu(e.clientX, e.clientY, node, g, w, h, fontSize);
     });
 
-    // Drag to move / Click to edit / Shift+Click to select (left button only)
+    // Double-click to edit
+    g.addEventListener('dblclick', (e) => {
+      if (e.button !== 0) return;
+      e.stopPropagation();
+      e.preventDefault();
+      startEdit(node, g, w, h, fontSize);
+    });
+
+    // Drag to move / Click to select (left button only)
     g.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return; // ignore right-click
       e.stopPropagation();
@@ -1184,14 +1192,19 @@ function render() {
         window.removeEventListener('mouseup', onUp);
         if (!dragged) {
           if (isShift) {
-            // Toggle selection
+            // Shift+Click: toggle selection (add/remove)
             if (selectedNodes.has(node.id)) selectedNodes.delete(node.id);
             else selectedNodes.add(node.id);
-            render();
           } else {
-            selectedNodes.clear();
-            startEdit(node, g, w, h, fontSize);
+            // Click: select this node (clear others)
+            if (selectedNodes.has(node.id) && selectedNodes.size === 1) {
+              selectedNodes.delete(node.id);
+            } else {
+              selectedNodes.clear();
+              selectedNodes.add(node.id);
+            }
           }
+          render();
         } else if (dropTargetId !== null) {
           const target = nodeMap.get(dropTargetId);
           if (target) reparentNode(node, target);
