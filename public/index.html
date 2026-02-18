@@ -175,6 +175,8 @@ let freeArrows = [];
 let freeArrowIdCounter = 0;
 let isArrowMode = false;
 let selectedArrowId = null;
+let movingArrowId = null;
+let movingArrowOffset = null;
 let arrowDrawColor = '#5bf';
 
 // Assign IDs
@@ -1498,9 +1500,30 @@ container.addEventListener('mousedown', (e) => {
     e.preventDefault();
     if (e.button === 2) return; // handled by contextmenu
     const arrowId = Number(arrowEl.dataset.arrowId);
-    selectedArrowId = (selectedArrowId === arrowId) ? null : arrowId;
-    selectedNodes.clear();
-    renderFreeArrows();
+    const arrow = freeArrows.find(a => a.id === arrowId);
+    if (arrow) {
+      pushUndo();
+      const wcx = window.innerWidth / 2, wcy = window.innerHeight / 2;
+      const clickX = (e.clientX - wcx - viewX) / scale;
+      const clickY = (e.clientY - wcy - viewY) / scale;
+      movingArrowId = arrowId;
+      movingArrowOffset = {
+        dx1: arrow.x1 - clickX, dy1: arrow.y1 - clickY,
+        dx2: arrow.x2 - clickX, dy2: arrow.y2 - clickY,
+        dcx: arrow.cx - clickX, dcy: arrow.cy - clickY,
+      };
+      selectedArrowId = arrowId;
+      selectedNodes.clear();
+      renderFreeArrows();
+    }
+    return;
+  }
+
+  // If moving an arrow, click to drop it
+  if (movingArrowId !== null) {
+    movingArrowId = null;
+    movingArrowOffset = null;
+    saveState();
     return;
   }
 
@@ -1571,6 +1594,23 @@ container.addEventListener('mousedown', (e) => {
 });
 
 window.addEventListener('mousemove', (e) => {
+  // Arrow grab-move
+  if (movingArrowId !== null && movingArrowOffset) {
+    const arrow = freeArrows.find(a => a.id === movingArrowId);
+    if (arrow) {
+      const wcx = window.innerWidth / 2, wcy = window.innerHeight / 2;
+      const mx = (e.clientX - wcx - viewX) / scale;
+      const my = (e.clientY - wcy - viewY) / scale;
+      arrow.x1 = mx + movingArrowOffset.dx1;
+      arrow.y1 = my + movingArrowOffset.dy1;
+      arrow.x2 = mx + movingArrowOffset.dx2;
+      arrow.y2 = my + movingArrowOffset.dy2;
+      arrow.cx = mx + movingArrowOffset.dcx;
+      arrow.cy = my + movingArrowOffset.dcy;
+      renderFreeArrows();
+    }
+    return;
+  }
   if (isPanning) {
     viewX = e.clientX - panStartX;
     viewY = e.clientY - panStartY;
