@@ -64,6 +64,16 @@ svg { width: 100%; height: 100%; }
 .top-bar-btn { color: #ddd; font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 14px; border-radius: 8px; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.15); transition: background 0.2s; white-space: nowrap; }
 .top-bar-btn:hover { background: rgba(255,255,255,0.25); color: #fff; }
 .name-edit-input { position: fixed; border: 2px solid #5bf; border-radius: 8px; background: rgba(30,30,60,0.95); color: #fff; font-size: 14px; font-weight: 600; outline: none; z-index: 300; padding: 6px 14px; }
+.page-dropdown { position: fixed; display: none; background: rgba(20,20,45,0.97); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 6px 0; z-index: 300; min-width: 220px; max-height: 400px; overflow-y: auto; backdrop-filter: blur(12px); box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
+.page-dropdown.show { display: block; }
+.page-item { padding: 9px 14px; color: #ddd; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 8px; transition: background 0.15s; }
+.page-item:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.page-item.active { background: rgba(85,187,255,0.2); color: #5bf; font-weight: 600; }
+.page-item .page-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-item .page-del { opacity: 0; color: #e55; font-size: 16px; padding: 0 4px; transition: opacity 0.15s; cursor: pointer; flex-shrink: 0; }
+.page-item:hover .page-del { opacity: 0.7; }
+.page-item .page-del:hover { opacity: 1; }
+.page-sep { height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0; }
 </style>
 </head>
 <body>
@@ -73,6 +83,7 @@ svg { width: 100%; height: 100%; }
   <div id="saveFileBtn" class="top-bar-btn" title="クラウドにバックアップ保存">💾 保存</div>
   <div id="newPageBtn" class="top-bar-btn">+ New Page</div>
 </div>
+<div id="page-dropdown" class="page-dropdown"></div>
 <div id="ctx-menu" class="ctx-menu">
   <div class="ctx-item" data-action="add">+ 子ノードを追加</div>
   <div class="ctx-item" data-action="align">⊞ 子ノードを整列</div>
@@ -179,6 +190,162 @@ let movingArrowId = null;
 let movingArrowOffset = null;
 let arrowDrawColor = '#5bf';
 
+// === Multi-page system ===
+let currentPageId = null;
+let pageName = 'SPA';
+// pageNameEl will be assigned after DOM is ready (used in switchToPage/createNewPage)
+
+function generatePageId() {
+  return 'p' + Date.now() + Math.random().toString(36).slice(2, 6);
+}
+
+function getPageList() {
+  try {
+    return JSON.parse(localStorage.getItem('mindmap_pages') || '[]');
+  } catch { return []; }
+}
+
+function setPageList(list) {
+  localStorage.setItem('mindmap_pages', JSON.stringify(list));
+}
+
+function savePageData(pageId) {
+  // Save current mindmap state into a page-specific key
+  const allPos = {};
+  nodeMap.forEach((node, id) => {
+    if (node._x !== undefined && node._y !== undefined) {
+      allPos[id] = { x: node._x, y: node._y };
+    }
+  });
+  const state = {
+    tree: serializeTree(DATA),
+    customPos: allPos,
+    customWidth: Object.fromEntries(customWidth),
+    collapsed: [...collapsed],
+    anchors: Object.fromEntries(anchorOverrides),
+    freeArrows: freeArrows.map(a => ({...a})),
+    freeArrowIdCounter,
+    viewX, viewY, scale,
+  };
+  localStorage.setItem('mindmap_page_' + pageId, JSON.stringify(state));
+}
+
+function loadPageData(pageId) {
+  try {
+    const raw = localStorage.getItem('mindmap_page_' + pageId);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    nodeIdCounter = 0; nodeMap.clear();
+    const tree = s.tree;
+    DATA.id = tree.id; DATA.text = tree.text; DATA.color = tree.color;
+    DATA.children = (tree.children || []).map(rebuildNode);
+    nodeMap.set(DATA.id, DATA);
+    if (DATA.id >= nodeIdCounter) nodeIdCounter = DATA.id + 1;
+    customPos.clear();
+    for (const [k, v] of Object.entries(s.customPos || {})) customPos.set(Number(k), v);
+    customWidth.clear();
+    for (const [k, v] of Object.entries(s.customWidth || {})) customWidth.set(Number(k), v);
+    collapsed.clear();
+    for (const id of (s.collapsed || [])) collapsed.add(id);
+    anchorOverrides.clear();
+    for (const [k, v] of Object.entries(s.anchors || {})) anchorOverrides.set(k, v);
+    freeArrows = (s.freeArrows || []).map(a => ({...a}));
+    freeArrowIdCounter = s.freeArrowIdCounter || 0;
+    viewX = s.viewX || 0; viewY = s.viewY || 0; scale = s.scale || 1;
+    selectedArrowId = null; selectedNodes.clear(); undoStack.length = 0;
+    return true;
+  } catch { return false; }
+}
+
+function switchToPage(pageId) {
+  // Save current page first
+  if (currentPageId) {
+    savePageData(currentPageId);
+  }
+  // Load target page
+  if (loadPageData(pageId)) {
+    currentPageId = pageId;
+    localStorage.setItem('mindmap_currentpage', pageId);
+    const pages = getPageList();
+    const pg = pages.find(p => p.id === pageId);
+    pageName = pg ? pg.name : 'ページ';
+    const el = document.getElementById('pageName');
+    if (el) el.textContent = pageName;
+    document.title = pageName;
+    render();
+    updateTransform();
+  }
+}
+
+function createNewPage(name) {
+  // Save current page first
+  if (currentPageId) {
+    savePageData(currentPageId);
+  }
+  const newId = generatePageId();
+  const pages = getPageList();
+  pages.push({ id: newId, name: name || '新規ページ' });
+  setPageList(pages);
+  // Reset state for new page
+  nodeIdCounter = 0; nodeMap.clear();
+  const def = JSON.parse(JSON.stringify(DEFAULT_TREE));
+  DATA.text = def.text; DATA.color = def.color; DATA.children = def.children;
+  assignIds(DATA);
+  customPos.clear(); customWidth.clear(); anchorOverrides.clear();
+  collapsed.clear(); selectedNodes.clear();
+  freeArrows = []; freeArrowIdCounter = 0; selectedArrowId = null;
+  viewX = 0; viewY = 0; scale = 1;
+  undoStack.length = 0;
+  currentPageId = newId;
+  localStorage.setItem('mindmap_currentpage', newId);
+  pageName = name || '新規ページ';
+  const el = document.getElementById('pageName');
+  if (el) el.textContent = pageName;
+  document.title = pageName;
+  render();
+  updateTransform();
+  autoFormat();
+  savePageData(newId);
+  return newId;
+}
+
+function deletePageById(pageId) {
+  const pages = getPageList();
+  if (pages.length <= 1) return; // don't delete last page
+  const idx = pages.findIndex(p => p.id === pageId);
+  if (idx === -1) return;
+  pages.splice(idx, 1);
+  setPageList(pages);
+  localStorage.removeItem('mindmap_page_' + pageId);
+  // If we deleted the current page, switch to first available
+  if (currentPageId === pageId) {
+    switchToPage(pages[0].id);
+  }
+}
+
+// Migrate from old single-page format to multi-page
+function migrateToMultiPage() {
+  const pages = getPageList();
+  if (pages.length > 0) {
+    // Already migrated
+    currentPageId = localStorage.getItem('mindmap_currentpage') || pages[0].id;
+    return;
+  }
+  // Old format: mindmap + mindmap_name
+  const oldData = localStorage.getItem('mindmap');
+  const oldName = localStorage.getItem('mindmap_name') || 'SPA';
+  const newId = generatePageId();
+  const pageList = [{ id: newId, name: oldName }];
+  setPageList(pageList);
+  if (oldData) {
+    localStorage.setItem('mindmap_page_' + newId, oldData);
+  }
+  currentPageId = newId;
+  localStorage.setItem('mindmap_currentpage', newId);
+}
+
+// === End multi-page system ===
+
 // Assign IDs
 function assignIds(node) {
   node.id = nodeIdCounter++;
@@ -272,6 +439,10 @@ function saveState() {
       viewX, viewY, scale,
     };
     localStorage.setItem('mindmap', JSON.stringify(state));
+    // Also save to page-specific key
+    if (currentPageId) {
+      localStorage.setItem('mindmap_page_' + currentPageId, JSON.stringify(state));
+    }
   } catch (e) {}
 }
 
@@ -321,17 +492,34 @@ function resetAll() {
 if (new URLSearchParams(window.location.search).has('reset')) {
   localStorage.removeItem('mindmap');
   localStorage.removeItem('mindmap_name');
+  localStorage.removeItem('mindmap_pages');
+  localStorage.removeItem('mindmap_currentpage');
   window.history.replaceState({}, '', window.location.pathname);
 }
 // Migration: force reload from default DATA (v2 = SPA tree)
-if (localStorage.getItem('mindmap_version') !== 'v4') {
-  localStorage.removeItem('mindmap');
-  localStorage.removeItem('mindmap_name');
-  localStorage.setItem('mindmap_version', 'v4');
+if (localStorage.getItem('mindmap_version') !== 'v5') {
+  // v5: multi-page system. Keep existing data but migrate format
+  localStorage.setItem('mindmap_version', 'v5');
 }
+// Migrate to multi-page system
+migrateToMultiPage();
 // Init: load saved state or assign fresh IDs
-const isFirstLoad = !loadState();
-if (isFirstLoad) { assignIds(DATA); }
+let isFirstLoad;
+if (currentPageId && loadPageData(currentPageId)) {
+  isFirstLoad = false;
+} else if (loadState()) {
+  isFirstLoad = false;
+} else {
+  isFirstLoad = true;
+  assignIds(DATA);
+}
+// Ensure current page exists in page list
+if (getPageList().length === 0) {
+  const newId = generatePageId();
+  setPageList([{ id: newId, name: 'SPA' }]);
+  currentPageId = newId;
+  localStorage.setItem('mindmap_currentpage', newId);
+}
 
 // Layout
 function computeLayout(node, depth, angleStart, angleEnd, parentX, parentY, pNode) {
@@ -1863,11 +2051,73 @@ window.addEventListener('resize', updateTransform);
 
 // Top bar: page name & new page
 const pageNameEl = document.getElementById('pageName');
-let pageName = localStorage.getItem('mindmap_name') || 'SPA';
+const pageDropdown = document.getElementById('page-dropdown');
+pageName = (() => {
+  const pages = getPageList();
+  const pg = pages.find(p => p.id === currentPageId);
+  return pg ? pg.name : 'SPA';
+})();
 pageNameEl.textContent = pageName;
 document.title = pageName;
 
-pageNameEl.addEventListener('click', () => {
+// Page dropdown: show/hide
+function showPageDropdown() {
+  const rect = pageNameEl.getBoundingClientRect();
+  const pages = getPageList();
+  pageDropdown.innerHTML = '';
+  pages.forEach(pg => {
+    const item = document.createElement('div');
+    item.className = 'page-item' + (pg.id === currentPageId ? ' active' : '');
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'page-name';
+    nameSpan.textContent = pg.name;
+    item.appendChild(nameSpan);
+    // Delete button (not for current if only 1 page)
+    if (pages.length > 1) {
+      const del = document.createElement('span');
+      del.className = 'page-del';
+      del.textContent = '\u00d7';
+      del.title = 'ページを削除';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm(pg.name + ' を削除しますか？')) {
+          deletePageById(pg.id);
+          showPageDropdown(); // refresh
+        }
+      });
+      item.appendChild(del);
+    }
+    item.addEventListener('click', () => {
+      if (pg.id !== currentPageId) {
+        switchToPage(pg.id);
+      }
+      hidePageDropdown();
+    });
+    pageDropdown.appendChild(item);
+  });
+  // Rename option
+  const sep = document.createElement('div');
+  sep.className = 'page-sep';
+  pageDropdown.appendChild(sep);
+  const renameItem = document.createElement('div');
+  renameItem.className = 'page-item';
+  renameItem.innerHTML = '<span style="opacity:0.6">&#9998;</span> <span class="page-name">名前を変更</span>';
+  renameItem.addEventListener('click', () => {
+    hidePageDropdown();
+    startPageRename();
+  });
+  pageDropdown.appendChild(renameItem);
+  // Position dropdown
+  pageDropdown.style.top = (rect.bottom + 4) + 'px';
+  pageDropdown.style.right = (window.innerWidth - rect.right) + 'px';
+  pageDropdown.classList.add('show');
+}
+
+function hidePageDropdown() {
+  pageDropdown.classList.remove('show');
+}
+
+function startPageRename() {
   const rect = pageNameEl.getBoundingClientRect();
   const input = document.createElement('input');
   input.type = 'text';
@@ -1889,7 +2139,10 @@ pageNameEl.addEventListener('click', () => {
       pageName = val;
       pageNameEl.textContent = val;
       document.title = val;
-      localStorage.setItem('mindmap_name', val);
+      // Update page list
+      const pages = getPageList();
+      const pg = pages.find(p => p.id === currentPageId);
+      if (pg) { pg.name = val; setPageList(pages); }
     }
     if (input.parentNode) input.remove();
   }
@@ -1898,6 +2151,21 @@ pageNameEl.addEventListener('click', () => {
     if (e.key === 'Escape') { committed = true; if (input.parentNode) input.remove(); }
   });
   input.addEventListener('blur', commit);
+}
+
+pageNameEl.addEventListener('click', () => {
+  if (pageDropdown.classList.contains('show')) {
+    hidePageDropdown();
+  } else {
+    showPageDropdown();
+  }
+});
+
+// Close dropdown when clicking outside
+document.addEventListener('mousedown', (e) => {
+  if (!pageDropdown.contains(e.target) && e.target !== pageNameEl) {
+    hidePageDropdown();
+  }
 });
 
 // Save to file (backup download)
@@ -1908,12 +2176,22 @@ document.getElementById('saveFileBtn').addEventListener('click', async () => {
   btn.style.pointerEvents = 'none';
   try {
     saveState();
-    const state = localStorage.getItem('mindmap');
-    const name = localStorage.getItem('mindmap_name') || 'mindmap';
+    // Save all pages to cloud
+    const pages = getPageList();
+    const allPages = {};
+    pages.forEach(pg => {
+      const raw = localStorage.getItem('mindmap_page_' + pg.id);
+      if (raw) allPages[pg.id] = raw;
+    });
     const resp = await fetch('/api/backup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: { mindmap: state, mindmap_name: name } }),
+      body: JSON.stringify({ data: {
+        pages: pages,
+        pageData: allPages,
+        currentPageId: currentPageId,
+        version: 'v5',
+      }}),
     });
     const result = await resp.json();
     if (result.ok) {
@@ -1932,16 +2210,7 @@ document.getElementById('saveFileBtn').addEventListener('click', async () => {
 });
 
 document.getElementById('newPageBtn').addEventListener('click', () => {
-  if (!confirm('新しいページを作成しますか？\n現在の内容はリセットされます。')) return;
-  resetAll();
-  pageName = '新規ページ';
-  pageNameEl.textContent = pageName;
-  document.title = pageName;
-  localStorage.setItem('mindmap_name', pageName);
-  freeArrows = []; freeArrowIdCounter = 0; selectedArrowId = null;
-  render();
-  updateTransform();
-  autoFormat();
+  createNewPage('新規ページ');
 });
 
 // Init
@@ -1976,9 +2245,21 @@ if (isFirstLoad) {
   fetch('/api/backup').then(r => r.ok ? r.json() : null).then(result => {
     if (result && result.ok && result.data) {
       const d = result.data;
-      if (d.mindmap) localStorage.setItem('mindmap', typeof d.mindmap === 'string' ? d.mindmap : JSON.stringify(d.mindmap));
-      if (d.mindmap_name) localStorage.setItem('mindmap_name', d.mindmap_name);
-      location.reload();
+      if (d.version === 'v5' && d.pages && d.pageData) {
+        // Multi-page restore
+        setPageList(d.pages);
+        for (const [id, raw] of Object.entries(d.pageData)) {
+          localStorage.setItem('mindmap_page_' + id, typeof raw === 'string' ? raw : JSON.stringify(raw));
+        }
+        localStorage.setItem('mindmap_currentpage', d.currentPageId || d.pages[0].id);
+        localStorage.setItem('mindmap_version', 'v5');
+        location.reload();
+      } else if (d.mindmap) {
+        // Legacy single-page restore
+        localStorage.setItem('mindmap', typeof d.mindmap === 'string' ? d.mindmap : JSON.stringify(d.mindmap));
+        if (d.mindmap_name) localStorage.setItem('mindmap_name', d.mindmap_name);
+        location.reload();
+      }
     }
   }).catch(() => {});
 }
