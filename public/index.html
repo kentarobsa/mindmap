@@ -322,6 +322,12 @@ if (new URLSearchParams(window.location.search).has('reset')) {
   localStorage.removeItem('mindmap_name');
   window.history.replaceState({}, '', window.location.pathname);
 }
+// Migration: force reload from default DATA (v2 = SPA tree)
+if (localStorage.getItem('mindmap_version') !== 'v2') {
+  localStorage.removeItem('mindmap');
+  localStorage.removeItem('mindmap_name');
+  localStorage.setItem('mindmap_version', 'v2');
+}
 // Init: load saved state or assign fresh IDs
 const isFirstLoad = !loadState();
 if (isFirstLoad) { assignIds(DATA); }
