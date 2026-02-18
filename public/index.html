@@ -1519,13 +1519,6 @@ container.addEventListener('mousedown', (e) => {
     return;
   }
 
-  // If moving an arrow, click to drop it
-  if (movingArrowId !== null) {
-    movingArrowId = null;
-    movingArrowOffset = null;
-    saveState();
-    return;
-  }
 
   // Arrow drawing mode
   if (isArrowMode && e.button === 0 && !e.shiftKey) {
@@ -1641,6 +1634,11 @@ window.addEventListener('mousemove', (e) => {
 });
 
 window.addEventListener('mouseup', () => {
+  if (movingArrowId !== null) {
+    movingArrowId = null;
+    movingArrowOffset = null;
+    saveState();
+  }
   if (isSelecting) {
     isSelecting = false;
     selectBox.setAttribute('visibility', 'hidden');
