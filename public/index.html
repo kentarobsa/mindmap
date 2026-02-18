@@ -319,6 +319,7 @@ function resetAll() {
 // Init: ?reset parameter clears corrupted state
 if (new URLSearchParams(window.location.search).has('reset')) {
   localStorage.removeItem('mindmap');
+  localStorage.removeItem('mindmap_name');
   window.history.replaceState({}, '', window.location.pathname);
 }
 // Init: load saved state or assign fresh IDs
