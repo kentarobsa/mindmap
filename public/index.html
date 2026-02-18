@@ -143,6 +143,7 @@ const DATA = {
         { text: '教材全て完了', color: '#4a90d9', children: [] },
       ]
     },
+    { text: '会員ページ', color: '#4a90d9', children: [] },
     { text: 'ZOOM面談', color: '#4a90d9', children: [] },
     {
       text: '最終チェック', color: '#4a90d9',
@@ -150,9 +151,6 @@ const DATA = {
         { text: 'デビュー', color: '#4a90d9', children: [] },
       ]
     },
-    { text: 'Phase 2: 開発', color: '#4a90d9', children: [] },
-    { text: 'Phase 3: テスト', color: '#4a90d9', children: [] },
-    { text: 'Phase 4: リリース', color: '#4a90d9', children: [] },
   ]
 };
 
@@ -323,10 +321,10 @@ if (new URLSearchParams(window.location.search).has('reset')) {
   window.history.replaceState({}, '', window.location.pathname);
 }
 // Migration: force reload from default DATA (v2 = SPA tree)
-if (localStorage.getItem('mindmap_version') !== 'v3') {
+if (localStorage.getItem('mindmap_version') !== 'v4') {
   localStorage.removeItem('mindmap');
   localStorage.removeItem('mindmap_name');
-  localStorage.setItem('mindmap_version', 'v3');
+  localStorage.setItem('mindmap_version', 'v4');
 }
 // Init: load saved state or assign fresh IDs
 const isFirstLoad = !loadState();
@@ -1857,7 +1855,29 @@ document.getElementById('newPageBtn').addEventListener('click', () => {
 // Init
 render();
 updateTransform();
-if (isFirstLoad) { autoFormat(); }
+if (isFirstLoad) {
+  autoFormat();
+  // Create white arrows connecting the main flow (top to bottom)
+  const flowOrder = ['SPA開設', '教育', '会員ページ', 'ZOOM面談', '最終チェック'];
+  const flowNodes = flowOrder.map(t => {
+    for (const [, n] of nodeMap) { if (n.text === t) return n; }
+    return null;
+  }).filter(Boolean);
+  for (let i = 0; i < flowNodes.length - 1; i++) {
+    const src = flowNodes[i], dst = flowNodes[i + 1];
+    if (src._x != null && dst._x != null) {
+      freeArrows.push({
+        id: freeArrowIdCounter++,
+        x1: src._x, y1: src._y + 19,
+        x2: dst._x, y2: dst._y - 19,
+        cx: (src._x + dst._x) / 2, cy: (src._y + dst._y) / 2,
+        color: '#ffffff', strokeWidth: 6,
+      });
+    }
+  }
+  renderFreeArrows();
+  saveState();
+}
 </script>
 </body>
 </html>
