@@ -1447,6 +1447,16 @@ function startEdit(node, g, w, h, fontSize) {
     if (val && val !== node.text) {
       pushUndo();
       node.text = val;
+      // Root node text syncs to page name
+      if (node.id === DATA.id) {
+        pageName = val;
+        const pnEl = document.getElementById('pageName');
+        if (pnEl) pnEl.textContent = val;
+        document.title = val;
+        const pages = getPageList();
+        const pg = pages.find(function(p) { return p.id === currentPageId; });
+        if (pg) { pg.name = val; setPageList(pages); }
+      }
       render();
     }
     if (input.parentNode) input.remove();
