@@ -1232,10 +1232,15 @@ function startEdit(node, g, w, h, fontSize) {
   const input = document.createElement('textarea');
   input.className = 'edit-input';
   input.value = node.text;
-  input.style.left = (bbox.left + bbox.width / 2 - w * scale / 2) + 'px';
-  input.style.top = (bbox.top + bbox.height / 2 - h * scale / 2) + 'px';
-  input.style.width = (w * scale) + 'px';
-  input.style.height = (h * scale) + 'px';
+  const iw = w * scale, ih = h * scale;
+  let ix = bbox.left + bbox.width / 2 - iw / 2;
+  let iy = bbox.top + bbox.height / 2 - ih / 2;
+  ix = Math.max(4, Math.min(ix, window.innerWidth - iw - 4));
+  iy = Math.max(4, Math.min(iy, window.innerHeight - ih - 4));
+  input.style.left = ix + 'px';
+  input.style.top = iy + 'px';
+  input.style.width = iw + 'px';
+  input.style.height = ih + 'px';
   input.style.fontSize = (fontSize * scale) + 'px';
   input.style.resize = 'none';
   document.body.appendChild(input);
@@ -1351,9 +1356,14 @@ function showContextMenu(mx, my, node, g, w, h, fontSize) {
   if (selCount >= 2) eqWItem.textContent = `↔ 選択 ${selCount} ノードの幅を揃える`;
   delSelItem.style.display = selCount >= 2 ? '' : 'none';
   if (selCount >= 2) delSelItem.textContent = `選択した ${selCount} ノードを削除`;
-  ctxMenu.style.left = mx + 'px';
-  ctxMenu.style.top = my + 'px';
+  ctxMenu.style.left = '0px';
+  ctxMenu.style.top = '0px';
   ctxMenu.classList.add('show');
+  const menuRect = ctxMenu.getBoundingClientRect();
+  const clampedX = Math.min(mx, window.innerWidth - menuRect.width - 8);
+  const clampedY = Math.min(my, window.innerHeight - menuRect.height - 8);
+  ctxMenu.style.left = Math.max(0, clampedX) + 'px';
+  ctxMenu.style.top = Math.max(0, clampedY) + 'px';
 }
 
 function hideContextMenu() { ctxMenu.classList.remove('show'); ctxNode = null; }
@@ -1743,9 +1753,14 @@ function showArrowContextMenu(mx, my, arrow) {
   custom.appendChild(inp);
   colorsEl.appendChild(custom);
 
-  arrowCtxMenu.style.left = mx + 'px';
-  arrowCtxMenu.style.top = my + 'px';
+  arrowCtxMenu.style.left = '0px';
+  arrowCtxMenu.style.top = '0px';
   arrowCtxMenu.classList.add('show');
+  const aRect = arrowCtxMenu.getBoundingClientRect();
+  const aX = Math.min(mx, window.innerWidth - aRect.width - 8);
+  const aY = Math.min(my, window.innerHeight - aRect.height - 8);
+  arrowCtxMenu.style.left = Math.max(0, aX) + 'px';
+  arrowCtxMenu.style.top = Math.max(0, aY) + 'px';
 }
 
 function hideArrowContextMenu() { arrowCtxMenu.classList.remove('show'); arrowCtxTarget = null; }
