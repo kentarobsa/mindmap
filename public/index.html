@@ -70,6 +70,9 @@ svg { width: 100%; height: 100%; }
 
 <div class="top-bar">
   <div id="pageName" class="top-bar-name" title="クリックで名前変更">SPA</div>
+  <div id="saveFileBtn" class="top-bar-btn" title="JSONファイルとしてバックアップ保存">💾 保存</div>
+  <div id="loadFileBtn" class="top-bar-btn" title="バックアップファイルから復元">📂 読み込み</div>
+  <input type="file" id="loadFileInput" accept=".json" style="display:none">
   <div id="newPageBtn" class="top-bar-btn">+ New Page</div>
 </div>
 <div id="ctx-menu" class="ctx-menu">
@@ -1837,6 +1840,46 @@ pageNameEl.addEventListener('click', () => {
     if (e.key === 'Escape') { committed = true; if (input.parentNode) input.remove(); }
   });
   input.addEventListener('blur', commit);
+});
+
+// Save to file (backup download)
+document.getElementById('saveFileBtn').addEventListener('click', () => {
+  saveState();
+  const state = localStorage.getItem('mindmap');
+  const name = localStorage.getItem('mindmap_name') || 'mindmap';
+  const blob = new Blob([JSON.stringify({ mindmap: state, mindmap_name: name }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  a.download = name + '_' + ts + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// Load from file (backup restore)
+document.getElementById('loadFileBtn').addEventListener('click', () => {
+  document.getElementById('loadFileInput').click();
+});
+document.getElementById('loadFileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!confirm('バックアップファイルから復元しますか？\n現在のデータは上書きされます。')) {
+    e.target.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (data.mindmap) localStorage.setItem('mindmap', typeof data.mindmap === 'string' ? data.mindmap : JSON.stringify(data.mindmap));
+      if (data.mindmap_name) localStorage.setItem('mindmap_name', data.mindmap_name);
+      location.reload();
+    } catch (err) {
+      alert('ファイルの読み込みに失敗しました: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
 });
 
 document.getElementById('newPageBtn').addEventListener('click', () => {
