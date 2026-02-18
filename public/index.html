@@ -70,9 +70,7 @@ svg { width: 100%; height: 100%; }
 
 <div class="top-bar">
   <div id="pageName" class="top-bar-name" title="クリックで名前変更">SPA</div>
-  <div id="saveFileBtn" class="top-bar-btn" title="JSONファイルとしてバックアップ保存">💾 保存</div>
-  <div id="loadFileBtn" class="top-bar-btn" title="バックアップファイルから復元">📂 読み込み</div>
-  <input type="file" id="loadFileInput" accept=".json" style="display:none">
+  <div id="saveFileBtn" class="top-bar-btn" title="クラウドにバックアップ保存">💾 保存</div>
   <div id="newPageBtn" class="top-bar-btn">+ New Page</div>
 </div>
 <div id="ctx-menu" class="ctx-menu">
@@ -1843,43 +1841,34 @@ pageNameEl.addEventListener('click', () => {
 });
 
 // Save to file (backup download)
-document.getElementById('saveFileBtn').addEventListener('click', () => {
-  saveState();
-  const state = localStorage.getItem('mindmap');
-  const name = localStorage.getItem('mindmap_name') || 'mindmap';
-  const blob = new Blob([JSON.stringify({ mindmap: state, mindmap_name: name }, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  a.download = name + '_' + ts + '.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
-});
-
-// Load from file (backup restore)
-document.getElementById('loadFileBtn').addEventListener('click', () => {
-  document.getElementById('loadFileInput').click();
-});
-document.getElementById('loadFileInput').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  if (!confirm('バックアップファイルから復元しますか？\n現在のデータは上書きされます。')) {
-    e.target.value = '';
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    try {
-      const data = JSON.parse(ev.target.result);
-      if (data.mindmap) localStorage.setItem('mindmap', typeof data.mindmap === 'string' ? data.mindmap : JSON.stringify(data.mindmap));
-      if (data.mindmap_name) localStorage.setItem('mindmap_name', data.mindmap_name);
-      location.reload();
-    } catch (err) {
-      alert('ファイルの読み込みに失敗しました: ' + err.message);
+// Cloud backup save
+document.getElementById('saveFileBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('saveFileBtn');
+  btn.textContent = '⏳ 保存中...';
+  btn.style.pointerEvents = 'none';
+  try {
+    saveState();
+    const state = localStorage.getItem('mindmap');
+    const name = localStorage.getItem('mindmap_name') || 'mindmap';
+    const resp = await fetch('/api/backup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: { mindmap: state, mindmap_name: name } }),
+    });
+    const result = await resp.json();
+    if (result.ok) {
+      btn.textContent = '✅ 保存完了';
+      setTimeout(() => { btn.textContent = '💾 保存'; }, 2000);
+    } else {
+      throw new Error(result.error || 'Save failed');
     }
-  };
-  reader.readAsText(file);
-  e.target.value = '';
+  } catch (e) {
+    btn.textContent = '❌ 失敗';
+    console.error('Cloud backup error:', e);
+    setTimeout(() => { btn.textContent = '💾 保存'; }, 3000);
+  } finally {
+    btn.style.pointerEvents = '';
+  }
 });
 
 document.getElementById('newPageBtn').addEventListener('click', () => {
@@ -1920,6 +1909,18 @@ if (isFirstLoad) {
   }
   renderFreeArrows();
   saveState();
+}
+
+// Auto-restore from cloud backup if localStorage was empty
+if (isFirstLoad) {
+  fetch('/api/backup').then(r => r.ok ? r.json() : null).then(result => {
+    if (result && result.ok && result.data) {
+      const d = result.data;
+      if (d.mindmap) localStorage.setItem('mindmap', typeof d.mindmap === 'string' ? d.mindmap : JSON.stringify(d.mindmap));
+      if (d.mindmap_name) localStorage.setItem('mindmap_name', d.mindmap_name);
+      location.reload();
+    }
+  }).catch(() => {});
 }
 </script>
 </body>
