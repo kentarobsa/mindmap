@@ -286,10 +286,11 @@ function createNewPage(name) {
   const pages = getPageList();
   pages.push({ id: newId, name: name || '新規ページ' });
   setPageList(pages);
-  // Reset state for new page
+  // Reset state for new page - single root node only
   nodeIdCounter = 0; nodeMap.clear();
-  const def = JSON.parse(JSON.stringify(DEFAULT_TREE));
-  DATA.text = def.text; DATA.color = def.color; DATA.children = def.children;
+  DATA.text = name || '新規ページ';
+  DATA.color = '#e94560';
+  DATA.children = [];
   assignIds(DATA);
   customPos.clear(); customWidth.clear(); anchorOverrides.clear();
   collapsed.clear(); selectedNodes.clear();
@@ -304,7 +305,6 @@ function createNewPage(name) {
   document.title = pageName;
   render();
   updateTransform();
-  autoFormat();
   savePageData(newId);
   return newId;
 }
@@ -494,6 +494,7 @@ if (new URLSearchParams(window.location.search).has('reset')) {
   localStorage.removeItem('mindmap_name');
   localStorage.removeItem('mindmap_pages');
   localStorage.removeItem('mindmap_currentpage');
+  localStorage.removeItem('mindmap_version');
   window.history.replaceState({}, '', window.location.pathname);
 }
 // Migration: force reload from default DATA (v2 = SPA tree)
