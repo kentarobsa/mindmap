@@ -88,6 +88,7 @@ svg { width: 100%; height: 100%; }
   <div class="ctx-item" data-action="add">+ 子ノードを追加</div>
   <div class="ctx-item" data-action="align">⊞ 子ノードを整列</div>
   <div class="ctx-item" data-action="align-left">↕ 縦列を左揃え</div>
+  <div class="ctx-item" data-action="align-top">↔ 横列を上揃え</div>
   <div class="ctx-color-label">このノードの色</div>
   <div class="ctx-color-grid" id="ctx-colors-single"></div>
   <div class="ctx-color-label" id="ctx-color-all-label">子ノードも含めて色変更</div>
@@ -872,6 +873,65 @@ function alignSelectedLeft() {
   updateTransform();
 }
 
+// Align selected nodes in a horizontal row, top-aligned
+function alignSelectedTop() {
+  if (selectedNodes.size < 2) return;
+  pushUndo();
+  const GAP = 20;
+
+  // Lock ALL non-selected node positions into customPos
+  const savedPositions = new Map();
+  nodeMap.forEach((n, id) => {
+    if (!selectedNodes.has(id) && n._x !== undefined && n._y !== undefined) {
+      const pos = { x: n._x, y: n._y };
+      customPos.set(id, pos);
+      savedPositions.set(id, pos);
+    }
+  });
+
+  // Collect selected nodes with their current positions
+  const targets = [];
+  for (const nid of selectedNodes) {
+    const n = nodeMap.get(nid);
+    if (!n) continue;
+    const d = getNodeDepth(n);
+    const w = customWidth.has(nid) ? customWidth.get(nid) : nodeWidth(n, d);
+    targets.push({ node: n, id: nid, x: n._x || 0, y: n._y || 0, w, depth: d });
+  }
+
+  // Sort by current X position (left to right)
+  targets.sort((a, b) => a.x - b.x);
+
+  // Find the topmost Y as alignment reference
+  let minY = Infinity;
+  for (const t of targets) {
+    if (t.y < minY) minY = t.y;
+  }
+
+  // Align all selected nodes to the same Y (top-aligned), keep original X
+  for (const t of targets) {
+    customPos.set(t.id, { x: t.x, y: minY });
+    t.node._y = minY;
+  }
+
+  render();
+
+  // Force restore non-selected node positions after render
+  let needRerender = false;
+  for (const [id, pos] of savedPositions) {
+    const n = nodeMap.get(id);
+    if (n && (Math.abs(n._x - pos.x) > 0.1 || Math.abs(n._y - pos.y) > 0.1)) {
+      customPos.set(id, pos);
+      n._x = pos.x;
+      n._y = pos.y;
+      needRerender = true;
+    }
+  }
+  if (needRerender) render();
+
+  updateTransform();
+}
+
 // Anchor utilities
 function autoSide(fromX, fromY, toX, toY) {
   const a = Math.atan2(toY - fromY, toX - fromX);
@@ -1506,6 +1566,8 @@ function showContextMenu(mx, my, node, g, w, h, fontSize) {
   alignItem.style.display = hasChildren ? '' : 'none';
   const alignLeftItem = ctxMenu.querySelector('[data-action="align-left"]');
   alignLeftItem.style.display = selectedNodes.size >= 2 ? '' : 'none';
+  const alignTopItem = ctxMenu.querySelector('[data-action="align-top"]');
+  alignTopItem.style.display = selectedNodes.size >= 2 ? '' : 'none';
   // Single node color palette
   const singleEl = document.getElementById('ctx-colors-single');
   singleEl.innerHTML = '';
@@ -1589,6 +1651,8 @@ ctxMenu.addEventListener('click', (e) => {
     autoFormatSubtree(ctxNode);
   } else if (action === 'align-left') {
     alignSelectedLeft();
+  } else if (action === 'align-top') {
+    alignSelectedTop();
   } else if (action === 'toggle') {
     if (ctxNode.children && ctxNode.children.length > 0) {
       if (collapsed.has(ctxNode.id)) collapsed.delete(ctxNode.id);
